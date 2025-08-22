@@ -2,41 +2,79 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+/* Zoya Baby Monitor Design System
+Soft, calming colors perfect for a baby monitoring app
 All colors MUST be HSL.
 */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Base colors - soft and calming */
+    --background: 220 30% 98%;
+    --foreground: 220 15% 25%;
 
+    /* Card system */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 220 15% 25%;
 
+    /* Popover system */
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 220 15% 25%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Primary - soft blue for baby theme */
+    --primary: 210 70% 85%;
+    --primary-dark: 210 60% 70%;
+    --primary-foreground: 210 30% 25%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Secondary - gentle pink accent */
+    --secondary: 340 50% 90%;
+    --secondary-dark: 340 40% 80%;
+    --secondary-foreground: 340 30% 25%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Muted tones */
+    --muted: 220 20% 95%;
+    --muted-foreground: 220 15% 45%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Accent - warm peach */
+    --accent: 25 80% 88%;
+    --accent-dark: 25 70% 75%;
+    --accent-foreground: 25 30% 25%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Success - soft green */
+    --success: 140 50% 85%;
+    --success-dark: 140 40% 70%;
+    --success-foreground: 140 30% 25%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    /* Warning - gentle yellow */
+    --warning: 45 90% 88%;
+    --warning-dark: 45 80% 75%;
+    --warning-foreground: 45 30% 25%;
 
-    --radius: 0.5rem;
+    /* Destructive - soft coral */
+    --destructive: 0 60% 85%;
+    --destructive-dark: 0 50% 70%;
+    --destructive-foreground: 0 30% 25%;
+
+    /* UI elements */
+    --border: 220 20% 88%;
+    --input: 220 20% 92%;
+    --ring: 210 70% 85%;
+
+    /* Gradients for beautiful backgrounds */
+    --gradient-primary: linear-gradient(135deg, hsl(210, 70%, 90%), hsl(340, 50%, 92%));
+    --gradient-hero: linear-gradient(180deg, hsl(210, 60%, 95%), hsl(340, 40%, 95%));
+    --gradient-accent: linear-gradient(45deg, hsl(25, 80%, 90%), hsl(45, 90%, 90%));
+
+    /* Shadows */
+    --shadow-soft: 0 4px 20px -4px hsl(220, 20%, 60%, 0.15);
+    --shadow-medium: 0 8px 30px -6px hsl(220, 20%, 60%, 0.25);
+    --shadow-large: 0 20px 60px -10px hsl(220, 20%, 60%, 0.35);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --radius: 1rem;
 
     --sidebar-background: 0 0% 98%;
 
@@ -56,33 +94,51 @@ All colors MUST be HSL.
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    /* Dark mode - softer, warmer tones for nighttime monitoring */
+    --background: 220 15% 8%;
+    --foreground: 220 20% 90%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 220 15% 12%;
+    --card-foreground: 220 20% 90%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 220 15% 12%;
+    --popover-foreground: 220 20% 90%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 210 50% 65%;
+    --primary-dark: 210 40% 50%;
+    --primary-foreground: 220 15% 8%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 340 30% 70%;
+    --secondary-dark: 340 25% 55%;
+    --secondary-foreground: 220 15% 8%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 220 15% 18%;
+    --muted-foreground: 220 15% 65%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 25 60% 70%;
+    --accent-dark: 25 50% 55%;
+    --accent-foreground: 220 15% 8%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --success: 140 30% 65%;
+    --success-dark: 140 25% 50%;
+    --success-foreground: 220 15% 8%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --warning: 45 70% 70%;
+    --warning-dark: 45 60% 55%;
+    --warning-foreground: 220 15% 8%;
+
+    --destructive: 0 40% 65%;
+    --destructive-dark: 0 35% 50%;
+    --destructive-foreground: 220 15% 8%;
+
+    --border: 220 15% 20%;
+    --input: 220 15% 18%;
+    --ring: 210 50% 65%;
+
+    /* Dark mode gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(210, 30%, 15%), hsl(340, 25%, 18%));
+    --gradient-hero: linear-gradient(180deg, hsl(210, 25%, 12%), hsl(340, 20%, 15%));
+    --gradient-accent: linear-gradient(45deg, hsl(25, 40%, 20%), hsl(45, 50%, 22%));
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
@@ -101,5 +157,89 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Custom Component Styles for Zoya App */
+@layer components {
+  /* Hero gradient backgrounds */
+  .hero-gradient {
+    background: var(--gradient-hero);
+  }
+
+  .primary-gradient {
+    background: var(--gradient-primary);
+  }
+
+  .accent-gradient {
+    background: var(--gradient-accent);
+  }
+
+  /* Connecting animation dots */
+  .connecting-dot {
+    @apply w-3 h-3 rounded-full bg-primary;
+    animation: bounce 1.4s ease-in-out infinite both;
+  }
+
+  .connecting-dot:nth-child(1) {
+    animation-delay: -0.32s;
+  }
+
+  .connecting-dot:nth-child(2) {
+    animation-delay: -0.16s;
+  }
+
+  /* Pulse effect for active monitoring */
+  .monitoring-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* Floating animation for icons */
+  .float-animation {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  /* Glass morphism effect */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  /* Smooth transitions */
+  .smooth-transition {
+    transition: var(--transition-smooth);
+  }
+
+  .bounce-transition {
+    transition: var(--transition-bounce);
+  }
+}
+
+/* Custom animations */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes bounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
   }
 }
