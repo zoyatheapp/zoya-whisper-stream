@@ -1,7 +1,7 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'app.lovable.9d08e8a449254c2d84019831f2337875',
+  appId: 'com.zoya.babymonitor',
   appName: 'Zoya',
   webDir: 'dist',
   server: {
