@@ -26,32 +26,37 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     try {
       setConnectionStatus('connecting');
       
-      // Request permissions explicitly for mobile devices
+      // Check if mediaDevices is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Camera/microphone not supported on this device');
+        setConnectionStatus('disconnected');
+        return;
+      }
+
+      // For iOS, we need to request permissions more explicitly
       const constraints = {
         video: { 
           facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 }
         },
         audio: {
           echoCancellation: true,
-          noiseSuppression: true
+          noiseSuppression: true,
+          autoGainControl: true
         }
       };
 
-      // Check if mediaDevices is supported
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera/microphone not supported on this device');
-      }
-
+      console.log('Requesting camera and microphone permissions...');
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Permissions granted, stream obtained:', stream);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         
-        // Ensure video plays on mobile
-        videoRef.current.play().catch(console.error);
+        // Ensure video plays on mobile - important for iOS
+        await videoRef.current.play();
       }
 
       setIsStreaming(true);
@@ -64,7 +69,19 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       
     } catch (error) {
       console.error('Error accessing camera/microphone:', error);
-      alert('Please allow camera and microphone access to start monitoring');
+      let errorMessage = 'Unable to access camera and microphone. ';
+      
+      if (error.name === 'NotAllowedError') {
+        errorMessage += 'Please allow camera and microphone access in your browser settings.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage += 'No camera or microphone found on this device.';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage += 'Camera or microphone is already in use by another application.';
+      } else {
+        errorMessage += 'Please check your device permissions and try again.';
+      }
+      
+      alert(errorMessage);
       setConnectionStatus('disconnected');
     }
   };
@@ -139,7 +156,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         <Button 
           variant="ghost" 
           onClick={onBack}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 min-h-12 px-4"
         >
           <ArrowLeft className="w-4 h-4" />
           Back

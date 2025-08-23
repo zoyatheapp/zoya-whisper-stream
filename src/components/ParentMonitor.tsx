@@ -40,15 +40,13 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
         }
       }
       
-      // In a real app, you would scan the network here
-      // For now, we'll simulate network discovery
-      const networkDevices: Device[] = [
-        { id: 'network-1', name: 'Nursery Camera', status: 'online' },
-        { id: 'network-2', name: 'Sleep Room Monitor', status: 'offline' }
-      ];
-      
-      // Only add network devices if no local device is found
+      // Only show demo devices if no real local device is found
       if (foundDevices.length === 0) {
+        // In a real production app, you would scan the network here for actual devices
+        const networkDevices: Device[] = [
+          { id: 'demo-1', name: 'Demo Nursery Camera', status: 'offline' },
+          { id: 'demo-2', name: 'Demo Sleep Monitor', status: 'offline' }
+        ];
         foundDevices.push(...networkDevices);
       }
       
@@ -109,7 +107,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
           <Button 
             variant="ghost" 
             onClick={disconnect}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 min-h-12 px-4"
           >
             <ArrowLeft className="w-4 h-4" />
             Disconnect
@@ -167,7 +165,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
         <Button 
           variant="ghost" 
           onClick={onBack}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 min-h-12 px-4"
         >
           <ArrowLeft className="w-4 h-4" />
           Back
