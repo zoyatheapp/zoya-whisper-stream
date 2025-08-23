@@ -26,14 +26,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     try {
       setConnectionStatus('connecting');
       
-      // Check if mediaDevices is supported
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('Camera/microphone not supported on this device');
-        setConnectionStatus('disconnected');
-        return;
-      }
-
-      // For iOS, we need to request permissions more explicitly
+      // For iOS/Capacitor, directly request permissions
       const constraints = {
         video: { 
           facingMode: 'user',
