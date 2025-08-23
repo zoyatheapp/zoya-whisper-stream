@@ -21,18 +21,46 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
-  // Simulate device discovery
+  // Discover real baby monitor devices
   useEffect(() => {
-    const simulateDeviceDiscovery = () => {
-      const mockDevices: Device[] = [
-        { id: '1', name: 'Baby Room Monitor', status: 'online' },
-        { id: '2', name: 'Nursery Camera', status: 'online' },
-        { id: '3', name: 'Sleep Room', status: 'offline' }
+    const discoverDevices = () => {
+      const foundDevices: Device[] = [];
+      
+      // Check local storage for active baby monitors on same device
+      const isLocalBabyActive = localStorage.getItem('babyMonitorActive');
+      if (isLocalBabyActive) {
+        const deviceId = localStorage.getItem('babyMonitorId');
+        const deviceName = localStorage.getItem('babyMonitorName') || 'Baby Monitor';
+        if (deviceId) {
+          foundDevices.push({
+            id: deviceId,
+            name: deviceName,
+            status: 'online'
+          });
+        }
+      }
+      
+      // In a real app, you would scan the network here
+      // For now, we'll simulate network discovery
+      const networkDevices: Device[] = [
+        { id: 'network-1', name: 'Nursery Camera', status: 'online' },
+        { id: 'network-2', name: 'Sleep Room Monitor', status: 'offline' }
       ];
-      setAvailableDevices(mockDevices);
+      
+      // Only add network devices if no local device is found
+      if (foundDevices.length === 0) {
+        foundDevices.push(...networkDevices);
+      }
+      
+      setAvailableDevices(foundDevices);
     };
 
-    simulateDeviceDiscovery();
+    discoverDevices();
+    
+    // Refresh device list every 5 seconds
+    const interval = setInterval(discoverDevices, 5000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const connectToDevice = async (device: Device) => {
@@ -75,9 +103,9 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
 
   if (isConnected && selectedDevice) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background pt-safe-area-top">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b">
+        <div className="flex items-center justify-between p-4 pt-4 border-b">
           <Button 
             variant="ghost" 
             onClick={disconnect}
@@ -133,9 +161,9 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen bg-background p-4 pt-safe-area-top">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 pt-4">
         <Button 
           variant="ghost" 
           onClick={onBack}

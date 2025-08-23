@@ -26,20 +26,45 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     try {
       setConnectionStatus('connecting');
       
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: true
-      });
+      // Request permissions explicitly for mobile devices
+      const constraints = {
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true
+        }
+      };
+
+      // Check if mediaDevices is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera/microphone not supported on this device');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
+        
+        // Ensure video plays on mobile
+        videoRef.current.play().catch(console.error);
       }
 
       setIsStreaming(true);
       setConnectionStatus('connected');
+      
+      // Store device ID for parent monitors to discover
+      localStorage.setItem('babyMonitorActive', 'true');
+      localStorage.setItem('babyMonitorId', `baby-${Date.now()}`);
+      localStorage.setItem('babyMonitorName', 'Baby Room Monitor');
+      
     } catch (error) {
       console.error('Error accessing camera/microphone:', error);
+      alert('Please allow camera and microphone access to start monitoring');
       setConnectionStatus('disconnected');
     }
   };
@@ -59,6 +84,11 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+
+    // Remove from local discovery
+    localStorage.removeItem('babyMonitorActive');
+    localStorage.removeItem('babyMonitorId');
+    localStorage.removeItem('babyMonitorName');
 
     setIsStreaming(false);
     setConnectionStatus('disconnected');
@@ -103,9 +133,9 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen bg-background p-4 pt-safe-area-top">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 pt-4">
         <Button 
           variant="ghost" 
           onClick={onBack}
