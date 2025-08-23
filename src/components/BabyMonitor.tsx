@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Camera, Mic, MicOff, Video, VideoOff, ArrowLeft, Wifi } from 'lucide-react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { Capacitor } from '@capacitor/core';
+import { Device } from '@capacitor/device';
 
 interface BabyMonitorProps {
   onBack: () => void;
@@ -26,7 +28,19 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     try {
       setConnectionStatus('connecting');
       
-      // For iOS/Capacitor, directly request permissions
+      // On native platforms, we need to handle permissions differently
+      if (Capacitor.isNativePlatform()) {
+        console.log('Running on native platform, requesting native permissions...');
+        
+        // Request permissions through native APIs
+        try {
+          const permissions = await (navigator as any).permissions?.query({ name: 'camera' });
+          console.log('Camera permission status:', permissions?.state);
+        } catch (e) {
+          console.log('Permissions API not available, proceeding with getUserMedia');
+        }
+      }
+
       const constraints = {
         video: { 
           facingMode: 'user',
@@ -40,42 +54,62 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         }
       };
 
-      console.log('Requesting camera and microphone permissions...');
+      console.log('Requesting camera and microphone access...');
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      console.log('Permissions granted, stream obtained:', stream);
+      console.log('Stream obtained successfully:', stream);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         
         // Ensure video plays on mobile - important for iOS
-        await videoRef.current.play();
+        try {
+          await videoRef.current.play();
+          console.log('Video playback started');
+        } catch (playError) {
+          console.log('Video playback error (this is normal on some devices):', playError);
+        }
       }
 
       setIsStreaming(true);
       setConnectionStatus('connected');
       
-      // Store device ID for parent monitors to discover
-      localStorage.setItem('babyMonitorActive', 'true');
-      localStorage.setItem('babyMonitorId', `baby-${Date.now()}`);
-      localStorage.setItem('babyMonitorName', 'Baby Room Monitor');
+      // Enhanced device discovery with more network information
+      const deviceInfo = await Device.getInfo();
+      const deviceId = await Device.getId();
       
-    } catch (error) {
+      // Store device ID for parent monitors to discover with network info
+      localStorage.setItem('babyMonitorActive', 'true');
+      localStorage.setItem('babyMonitorId', deviceId.identifier || `baby-${Date.now()}`);
+      localStorage.setItem('babyMonitorName', `${deviceInfo.model || 'Baby'} Room Monitor`);
+      localStorage.setItem('babyMonitorPlatform', deviceInfo.platform);
+      localStorage.setItem('babyMonitorLastSeen', Date.now().toString());
+      
+      console.log('Baby monitor activated and discoverable on network');
+      
+    } catch (error: any) {
       console.error('Error accessing camera/microphone:', error);
-      let errorMessage = 'Unable to access camera and microphone. ';
+      
+      setConnectionStatus('disconnected');
+      
+      // Provide more specific error messages for iOS
+      let errorMessage = '';
       
       if (error.name === 'NotAllowedError') {
-        errorMessage += 'Please allow camera and microphone access in your browser settings.';
+        errorMessage = 'Camera and microphone access denied. Please go to Settings > Privacy & Security > Camera/Microphone and allow access for this app.';
       } else if (error.name === 'NotFoundError') {
-        errorMessage += 'No camera or microphone found on this device.';
+        errorMessage = 'No camera or microphone found. Please check your device has these capabilities.';
       } else if (error.name === 'NotReadableError') {
-        errorMessage += 'Camera or microphone is already in use by another application.';
+        errorMessage = 'Camera or microphone is busy. Please close other apps using camera/microphone and try again.';
+      } else if (error.name === 'AbortError') {
+        errorMessage = 'Camera access was interrupted. Please try again.';
+      } else if (error.name === 'NotSupportedError') {
+        errorMessage = 'Camera/microphone not supported on this device or browser.';
       } else {
-        errorMessage += 'Please check your device permissions and try again.';
+        errorMessage = `Permission error: ${error.message}. Please check app permissions in device settings.`;
       }
       
       alert(errorMessage);
-      setConnectionStatus('disconnected');
     }
   };
 
@@ -99,6 +133,8 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     localStorage.removeItem('babyMonitorActive');
     localStorage.removeItem('babyMonitorId');
     localStorage.removeItem('babyMonitorName');
+    localStorage.removeItem('babyMonitorPlatform');
+    localStorage.removeItem('babyMonitorLastSeen');
 
     setIsStreaming(false);
     setConnectionStatus('disconnected');

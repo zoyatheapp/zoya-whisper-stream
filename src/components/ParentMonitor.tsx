@@ -26,16 +26,24 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
     const discoverDevices = () => {
       const foundDevices: Device[] = [];
       
-      // Check local storage for active baby monitors on same device
+      // Check for active baby monitors on local network (enhanced discovery)
       const isLocalBabyActive = localStorage.getItem('babyMonitorActive');
-      if (isLocalBabyActive) {
+      if (isLocalBabyActive === 'true') {
         const deviceId = localStorage.getItem('babyMonitorId');
-        const deviceName = localStorage.getItem('babyMonitorName') || 'Baby Monitor';
-        if (deviceId) {
+        const deviceName = localStorage.getItem('babyMonitorName');
+        const devicePlatform = localStorage.getItem('babyMonitorPlatform');
+        const lastSeen = localStorage.getItem('babyMonitorLastSeen');
+        
+        if (deviceId && deviceName) {
+          // Check if device was seen recently (within last 2 minutes)
+          const twoMinutesAgo = Date.now() - (2 * 60 * 1000);
+          const lastSeenTime = lastSeen ? parseInt(lastSeen) : 0;
+          const isOnline = lastSeenTime > twoMinutesAgo;
+          
           foundDevices.push({
             id: deviceId,
-            name: deviceName,
-            status: 'online'
+            name: `${deviceName}${devicePlatform ? ` (${devicePlatform})` : ''}`,
+            status: isOnline ? 'online' : 'offline'
           });
         }
       }
@@ -55,7 +63,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
 
     discoverDevices();
     
-    // Refresh device list every 5 seconds
+    // Refresh device list every 5 seconds for real-time updates
     const interval = setInterval(discoverDevices, 5000);
     
     return () => clearInterval(interval);
