@@ -5,6 +5,7 @@ import { Camera, Mic, MicOff, Video, VideoOff, ArrowLeft, Wifi } from 'lucide-re
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Device } from '@capacitor/device';
+import { Network } from '@capacitor/network';
 
 interface BabyMonitorProps {
   onBack: () => void;
@@ -18,8 +19,9 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const [connectedParents, setConnectedParents] = useState<number>(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const discoveryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const webSocketRef = useRef<WebSocket | null>(null);
 
   const startMonitoring = async () => {
     try {
@@ -169,46 +171,78 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     try {
       const deviceInfo = await Device.getInfo();
       const deviceId = await Device.getId();
+      const networkStatus = await Network.getStatus();
       
-      // Create broadcast channel for local network discovery
-      broadcastChannelRef.current = new BroadcastChannel('baby-monitor-discovery');
+      console.log('Network status:', networkStatus);
+      console.log('Setting up baby monitor for discovery...');
       
       const deviceData = {
         id: deviceId.identifier || `baby-${Date.now()}`,
         name: `${deviceInfo.model || 'Baby'} Room Monitor`,
         platform: deviceInfo.platform,
         type: 'baby-monitor',
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        ip: networkStatus.connected ? 'local-network' : 'offline'
       };
-      
-      // Broadcast device availability every 5 seconds
-      const broadcastInterval = setInterval(() => {
-        if (broadcastChannelRef.current && isStreaming) {
-          broadcastChannelRef.current.postMessage({
-            type: 'device-announcement',
-            device: { ...deviceData, timestamp: Date.now() }
-          });
-        }
-      }, 5000);
-      
-      // Listen for parent monitor connection requests
-      broadcastChannelRef.current.onmessage = async (event) => {
-        const { type, parentId, offer } = event.data;
+
+      // Create a simple HTTP server simulation using localStorage for cross-device discovery
+      // In a real implementation, you'd use a proper signaling server
+      const announceDevice = () => {
+        if (!isStreaming) return;
         
-        if (type === 'connection-request' && streamRef.current) {
-          await handleParentConnection(parentId, offer);
-        } else if (type === 'parent-disconnected') {
-          handleParentDisconnection(parentId);
+        console.log('Announcing baby monitor device:', deviceData);
+        
+        // Store device info with timestamp for discovery
+        const storageKey = `baby-monitor-${deviceData.id}`;
+        const announcementData = {
+          ...deviceData,
+          timestamp: Date.now(),
+          status: 'active'
+        };
+        
+        // Use both localStorage and sessionStorage for broader compatibility
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(announcementData));
+          sessionStorage.setItem(storageKey, JSON.stringify(announcementData));
+          
+          // Also try to broadcast to any listening web workers or service workers
+          if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({
+              type: 'baby-monitor-announcement',
+              device: announcementData
+            });
+          }
+          
+          // Use BroadcastChannel as fallback for same-origin communication
+          const channel = new BroadcastChannel('zoya-baby-monitor');
+          channel.postMessage({
+            type: 'device-announcement',
+            device: announcementData
+          });
+          
+          // Listen for connection requests
+          channel.onmessage = async (event) => {
+            const { type, parentId, offer } = event.data;
+            console.log('Received message:', event.data);
+            
+            if (type === 'connection-request' && streamRef.current) {
+              console.log('Handling parent connection request from:', parentId);
+              await handleParentConnection(parentId, offer);
+            } else if (type === 'parent-disconnected') {
+              handleParentDisconnection(parentId);
+            }
+          };
+          
+        } catch (error) {
+          console.error('Error storing device announcement:', error);
         }
       };
+
+      // Announce immediately and then every 3 seconds
+      announceDevice();
+      discoveryIntervalRef.current = setInterval(announceDevice, 3000);
       
-      // Initial announcement
-      broadcastChannelRef.current.postMessage({
-        type: 'device-announcement',
-        device: deviceData
-      });
-      
-      return () => clearInterval(broadcastInterval);
+      console.log('Baby monitor broadcasting started');
       
     } catch (error) {
       console.error('Error setting up network broadcasting:', error);
@@ -218,13 +252,19 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   // Handle parent monitor connections via WebRTC
   const handleParentConnection = async (parentId: string, offer: RTCSessionDescriptionInit) => {
     try {
+      console.log('Setting up WebRTC connection with parent:', parentId);
+      
       const peerConnection = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
       });
       
       // Add stream tracks to peer connection
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => {
+          console.log('Adding track to peer connection:', track.kind);
           peerConnection.addTrack(track, streamRef.current!);
         });
       }
@@ -236,23 +276,36 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       
-      // Send answer back via broadcast channel
-      if (broadcastChannelRef.current) {
-        broadcastChannelRef.current.postMessage({
-          type: 'connection-answer',
-          parentId,
-          answer
-        });
-      }
+      console.log('Created answer, sending back to parent...');
+      
+      // Send answer back via multiple channels for reliability
+      const channel = new BroadcastChannel('zoya-baby-monitor');
+      channel.postMessage({
+        type: 'connection-answer',
+        parentId,
+        answer
+      });
+      
+      // Also store in localStorage for parent to pick up
+      const answerKey = `baby-answer-${parentId}`;
+      localStorage.setItem(answerKey, JSON.stringify({
+        type: 'connection-answer',
+        parentId,
+        answer,
+        timestamp: Date.now()
+      }));
       
       // Store peer connection
       peerConnectionsRef.current.set(parentId, peerConnection);
       setConnectedParents(prev => prev + 1);
       
       peerConnection.onconnectionstatechange = () => {
+        console.log('Peer connection state:', peerConnection.connectionState);
         if (peerConnection.connectionState === 'disconnected' || 
             peerConnection.connectionState === 'failed') {
           handleParentDisconnection(parentId);
+        } else if (peerConnection.connectionState === 'connected') {
+          console.log('Parent successfully connected!');
         }
       };
       
@@ -270,10 +323,24 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     }
   };
 
-  const cleanupNetworkBroadcasting = () => {
-    if (broadcastChannelRef.current) {
-      broadcastChannelRef.current.close();
-      broadcastChannelRef.current = null;
+  const cleanupNetworkBroadcasting = async () => {
+    if (discoveryIntervalRef.current) {
+      clearInterval(discoveryIntervalRef.current);
+      discoveryIntervalRef.current = null;
+    }
+    
+    // Remove device from discovery
+    try {
+      const deviceInfo = await Device.getInfo();
+      const deviceId = await Device.getId();
+      const storageKey = `baby-monitor-${deviceId.identifier || 'unknown'}`;
+      
+      localStorage.removeItem(storageKey);
+      sessionStorage.removeItem(storageKey);
+      
+      console.log('Removed baby monitor from discovery');
+    } catch (error) {
+      console.error('Error cleaning up device announcement:', error);
     }
     
     // Close all peer connections
