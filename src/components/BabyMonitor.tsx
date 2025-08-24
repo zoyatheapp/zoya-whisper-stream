@@ -15,8 +15,11 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
+  const [connectedParents, setConnectedParents] = useState<number>(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
 
   const startMonitoring = async () => {
     try {
@@ -74,16 +77,8 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       setIsStreaming(true);
       setConnectionStatus('connected');
       
-      // Enhanced device discovery with more network information
-      const deviceInfo = await Device.getInfo();
-      const deviceId = await Device.getId();
-      
-      // Store device ID for parent monitors to discover with network info
-      localStorage.setItem('babyMonitorActive', 'true');
-      localStorage.setItem('babyMonitorId', deviceId.identifier || `baby-${Date.now()}`);
-      localStorage.setItem('babyMonitorName', `${deviceInfo.model || 'Baby'} Room Monitor`);
-      localStorage.setItem('babyMonitorPlatform', deviceInfo.platform);
-      localStorage.setItem('babyMonitorLastSeen', Date.now().toString());
+      // Setup network broadcasting for device discovery
+      await setupNetworkBroadcasting();
       
       console.log('Baby monitor activated and discoverable on network');
       
@@ -129,15 +124,12 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       videoRef.current.srcObject = null;
     }
 
-    // Remove from local discovery
-    localStorage.removeItem('babyMonitorActive');
-    localStorage.removeItem('babyMonitorId');
-    localStorage.removeItem('babyMonitorName');
-    localStorage.removeItem('babyMonitorPlatform');
-    localStorage.removeItem('babyMonitorLastSeen');
+    // Cleanup network broadcasting
+    cleanupNetworkBroadcasting();
 
     setIsStreaming(false);
     setConnectionStatus('disconnected');
+    setConnectedParents(0);
   };
 
   const toggleMic = async () => {
@@ -170,6 +162,123 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         setIsCameraEnabled(!isCameraEnabled);
       }
     }
+  };
+
+  // Setup network broadcasting for device discovery
+  const setupNetworkBroadcasting = async () => {
+    try {
+      const deviceInfo = await Device.getInfo();
+      const deviceId = await Device.getId();
+      
+      // Create broadcast channel for local network discovery
+      broadcastChannelRef.current = new BroadcastChannel('baby-monitor-discovery');
+      
+      const deviceData = {
+        id: deviceId.identifier || `baby-${Date.now()}`,
+        name: `${deviceInfo.model || 'Baby'} Room Monitor`,
+        platform: deviceInfo.platform,
+        type: 'baby-monitor',
+        timestamp: Date.now()
+      };
+      
+      // Broadcast device availability every 5 seconds
+      const broadcastInterval = setInterval(() => {
+        if (broadcastChannelRef.current && isStreaming) {
+          broadcastChannelRef.current.postMessage({
+            type: 'device-announcement',
+            device: { ...deviceData, timestamp: Date.now() }
+          });
+        }
+      }, 5000);
+      
+      // Listen for parent monitor connection requests
+      broadcastChannelRef.current.onmessage = async (event) => {
+        const { type, parentId, offer } = event.data;
+        
+        if (type === 'connection-request' && streamRef.current) {
+          await handleParentConnection(parentId, offer);
+        } else if (type === 'parent-disconnected') {
+          handleParentDisconnection(parentId);
+        }
+      };
+      
+      // Initial announcement
+      broadcastChannelRef.current.postMessage({
+        type: 'device-announcement',
+        device: deviceData
+      });
+      
+      return () => clearInterval(broadcastInterval);
+      
+    } catch (error) {
+      console.error('Error setting up network broadcasting:', error);
+    }
+  };
+
+  // Handle parent monitor connections via WebRTC
+  const handleParentConnection = async (parentId: string, offer: RTCSessionDescriptionInit) => {
+    try {
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      
+      // Add stream tracks to peer connection
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => {
+          peerConnection.addTrack(track, streamRef.current!);
+        });
+      }
+      
+      // Set remote description (offer from parent)
+      await peerConnection.setRemoteDescription(offer);
+      
+      // Create and send answer
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      
+      // Send answer back via broadcast channel
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.postMessage({
+          type: 'connection-answer',
+          parentId,
+          answer
+        });
+      }
+      
+      // Store peer connection
+      peerConnectionsRef.current.set(parentId, peerConnection);
+      setConnectedParents(prev => prev + 1);
+      
+      peerConnection.onconnectionstatechange = () => {
+        if (peerConnection.connectionState === 'disconnected' || 
+            peerConnection.connectionState === 'failed') {
+          handleParentDisconnection(parentId);
+        }
+      };
+      
+    } catch (error) {
+      console.error('Error handling parent connection:', error);
+    }
+  };
+
+  const handleParentDisconnection = (parentId: string) => {
+    const peerConnection = peerConnectionsRef.current.get(parentId);
+    if (peerConnection) {
+      peerConnection.close();
+      peerConnectionsRef.current.delete(parentId);
+      setConnectedParents(prev => Math.max(0, prev - 1));
+    }
+  };
+
+  const cleanupNetworkBroadcasting = () => {
+    if (broadcastChannelRef.current) {
+      broadcastChannelRef.current.close();
+      broadcastChannelRef.current = null;
+    }
+    
+    // Close all peer connections
+    peerConnectionsRef.current.forEach(pc => pc.close());
+    peerConnectionsRef.current.clear();
   };
 
   useEffect(() => {
@@ -277,12 +386,26 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         {/* Connection Info */}
         {isStreaming && (
           <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <Wifi className="w-5 h-5 text-success" />
-              <div>
-                <p className="font-medium text-card-foreground">Broadcasting on Local Network</p>
-                <p className="text-sm text-muted-foreground">Parents can connect to watch</p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Wifi className="w-5 h-5 text-success" />
+                <div>
+                  <p className="font-medium text-card-foreground">Broadcasting on Local Network</p>
+                  <p className="text-sm text-muted-foreground">
+                    {connectedParents > 0 
+                      ? `${connectedParents} parent${connectedParents > 1 ? 's' : ''} connected`
+                      : 'Ready for parent connections'
+                    }
+                  </p>
+                </div>
               </div>
+              
+              {connectedParents > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
+                  <span className="text-sm font-medium text-success">{connectedParents}</span>
+                </div>
+              )}
             </div>
           </Card>
         )}

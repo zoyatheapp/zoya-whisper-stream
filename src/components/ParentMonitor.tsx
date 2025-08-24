@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, Users, Wifi, Play, Volume2, VolumeX, Maximize2 } from 'lucide-react';
@@ -8,6 +8,7 @@ interface Device {
   id: string;
   name: string;
   status: 'online' | 'offline';
+  timestamp?: number;
 }
 
 interface ParentMonitorProps {
@@ -20,53 +21,69 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
-  // Discover real baby monitor devices
+  // Discover baby monitor devices on local network
   useEffect(() => {
-    const discoverDevices = () => {
-      const foundDevices: Device[] = [];
+    const setupDeviceDiscovery = () => {
+      // Create broadcast channel for device discovery
+      broadcastChannelRef.current = new BroadcastChannel('baby-monitor-discovery');
       
-      // Check for active baby monitors on local network (enhanced discovery)
-      const isLocalBabyActive = localStorage.getItem('babyMonitorActive');
-      if (isLocalBabyActive === 'true') {
-        const deviceId = localStorage.getItem('babyMonitorId');
-        const deviceName = localStorage.getItem('babyMonitorName');
-        const devicePlatform = localStorage.getItem('babyMonitorPlatform');
-        const lastSeen = localStorage.getItem('babyMonitorLastSeen');
+      const discoveredDevices = new Map<string, Device>();
+      
+      // Listen for device announcements
+      broadcastChannelRef.current.onmessage = (event) => {
+        const { type, device, answer, parentId } = event.data;
         
-        if (deviceId && deviceName) {
-          // Check if device was seen recently (within last 2 minutes)
-          const twoMinutesAgo = Date.now() - (2 * 60 * 1000);
-          const lastSeenTime = lastSeen ? parseInt(lastSeen) : 0;
-          const isOnline = lastSeenTime > twoMinutesAgo;
+        if (type === 'device-announcement' && device?.type === 'baby-monitor') {
+          // Check if device is recent (within last 30 seconds)
+          const thirtySecondsAgo = Date.now() - (30 * 1000);
+          const isOnline = device.timestamp > thirtySecondsAgo;
           
-          foundDevices.push({
-            id: deviceId,
-            name: `${deviceName}${devicePlatform ? ` (${devicePlatform})` : ''}`,
-            status: isOnline ? 'online' : 'offline'
+          discoveredDevices.set(device.id, {
+            id: device.id,
+            name: device.name,
+            status: isOnline ? 'online' : 'offline',
+            timestamp: device.timestamp
           });
+          
+          // Update devices list
+          setAvailableDevices(Array.from(discoveredDevices.values()));
+        } else if (type === 'connection-answer' && parentId && answer) {
+          handleConnectionAnswer(answer);
         }
-      }
+      };
       
-      // Only show demo devices if no real local device is found
-      if (foundDevices.length === 0) {
-        // In a real production app, you would scan the network here for actual devices
-        const networkDevices: Device[] = [
-          { id: 'demo-1', name: 'Demo Nursery Camera', status: 'offline' },
-          { id: 'demo-2', name: 'Demo Sleep Monitor', status: 'offline' }
-        ];
-        foundDevices.push(...networkDevices);
-      }
+      // Request device announcements
+      broadcastChannelRef.current.postMessage({ type: 'discovery-request' });
       
-      setAvailableDevices(foundDevices);
+      // Clean up old devices periodically
+      const cleanupInterval = setInterval(() => {
+        const now = Date.now();
+        const oneMinuteAgo = now - (60 * 1000);
+        
+        discoveredDevices.forEach((device, id) => {
+          // Remove devices not seen in the last minute
+          if (!device.timestamp || device.timestamp < oneMinuteAgo) {
+            discoveredDevices.delete(id);
+          }
+        });
+        
+        setAvailableDevices(Array.from(discoveredDevices.values()));
+      }, 10000);
+      
+      return () => {
+        clearInterval(cleanupInterval);
+        if (broadcastChannelRef.current) {
+          broadcastChannelRef.current.close();
+        }
+      };
     };
 
-    discoverDevices();
-    
-    // Refresh device list every 5 seconds for real-time updates
-    const interval = setInterval(discoverDevices, 5000);
-    
-    return () => clearInterval(interval);
+    const cleanup = setupDeviceDiscovery();
+    return cleanup;
   }, []);
 
   const connectToDevice = async (device: Device) => {
@@ -79,11 +96,65 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
     setIsConnecting(true);
     setSelectedDevice(device);
 
-    // Simulate connection process
-    setTimeout(() => {
+    try {
+      // Create WebRTC peer connection
+      const peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      
+      peerConnectionRef.current = peerConnection;
+      
+      // Handle incoming stream
+      peerConnection.ontrack = (event) => {
+        if (videoRef.current && event.streams[0]) {
+          videoRef.current.srcObject = event.streams[0];
+        }
+      };
+      
+      // Create offer
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      
+      // Send connection request via broadcast channel
+      if (broadcastChannelRef.current) {
+        const parentId = `parent-${Date.now()}`;
+        broadcastChannelRef.current.postMessage({
+          type: 'connection-request',
+          parentId,
+          offer,
+          deviceId: device.id
+        });
+      }
+      
+      // Wait for connection establishment
+      setTimeout(() => {
+        if (peerConnection.connectionState === 'connected' || 
+            peerConnection.connectionState === 'connecting') {
+          setIsConnecting(false);
+          setIsConnected(true);
+        } else {
+          setIsConnecting(false);
+          alert('Failed to connect to baby monitor. Please try again.');
+        }
+      }, 5000);
+      
+    } catch (error) {
+      console.error('Connection error:', error);
       setIsConnecting(false);
-      setIsConnected(true);
-    }, 2000);
+      alert('Failed to establish connection. Please check network and try again.');
+    }
+  };
+
+  const handleConnectionAnswer = async (answer: RTCSessionDescriptionInit) => {
+    if (peerConnectionRef.current) {
+      try {
+        await peerConnectionRef.current.setRemoteDescription(answer);
+        setIsConnecting(false);
+        setIsConnected(true);
+      } catch (error) {
+        console.error('Error handling connection answer:', error);
+      }
+    }
   };
 
   const disconnect = async () => {
@@ -91,6 +162,26 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       await Haptics.impact({ style: ImpactStyle.Light });
     } catch (error) {
       console.log('Haptics not available:', error);
+    }
+
+    // Close peer connection
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+    
+    // Notify baby monitor of disconnection
+    if (broadcastChannelRef.current && selectedDevice) {
+      broadcastChannelRef.current.postMessage({
+        type: 'parent-disconnected',
+        parentId: `parent-${Date.now()}`,
+        deviceId: selectedDevice.id
+      });
+    }
+    
+    // Clear video
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
 
     setIsConnected(false);
@@ -137,11 +228,24 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
 
         {/* Video Stream */}
         <div className="relative h-[calc(100vh-140px)] bg-muted flex items-center justify-center">
-          <div className="text-center text-muted-foreground">
-            <Play className="w-16 h-16 mx-auto mb-4" />
-            <p className="text-lg">Live Video Stream</p>
-            <p className="text-sm">Baby monitor feed would appear here</p>
-          </div>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={isMuted}
+            className="w-full h-full object-cover"
+          />
+          
+          {/* Loading overlay when no stream */}
+          {!videoRef.current?.srcObject && (
+            <div className="absolute inset-0 flex items-center justify-center text-muted-foreground bg-muted">
+              <div className="text-center">
+                <Play className="w-16 h-16 mx-auto mb-4" />
+                <p className="text-lg">Live Video Stream</p>
+                <p className="text-sm">Connecting to baby monitor...</p>
+              </div>
+            </div>
+          )}
 
           {/* Fullscreen Button */}
           <Button
