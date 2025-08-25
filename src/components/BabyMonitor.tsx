@@ -166,7 +166,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     }
   };
 
-  // Setup network broadcasting for device discovery using WebSocket server
+  // Setup network broadcasting for device discovery using localStorage and BroadcastChannel
   const setupNetworkBroadcasting = async () => {
     try {
       const deviceInfo = await Device.getInfo();
@@ -187,123 +187,86 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         platform: deviceInfo.platform,
         type: 'baby-monitor',
         timestamp: Date.now(),
-        networkId: networkStatus.connectionType
+        status: 'active',
+        lastSeen: Date.now(),
+        networkId: networkStatus.connectionType,
+        networkAddress: '192.168.1.100' // Simulated IP for network representation
       };
 
-      // Create WebSocket server for local network discovery
-      const announceOnNetwork = async () => {
-        if (!isStreaming) return;
+      console.log('Device data created:', deviceData);
+
+      // Store device in localStorage with network-like key for discovery
+      const networkKey = `zoya-baby-monitor-${deviceData.id}`;
+      localStorage.setItem(networkKey, JSON.stringify(deviceData));
+      console.log('Device stored in network registry:', networkKey);
+
+      // Create network discovery channel
+      const networkChannel = new BroadcastChannel('zoya-network-discovery');
+      
+      // Listen for discovery requests from parent monitors
+      networkChannel.onmessage = async (event) => {
+        const { type, parentId } = event.data;
+        console.log('Received network discovery message:', event.data);
         
-        console.log('Broadcasting baby monitor on network:', deviceData);
-        
-        // Create a WebSocket connection to announce presence
-        try {
-          // Use a simple broadcast mechanism - try multiple common local network ports
-          const broadcastPorts = [3001, 3002, 3003, 3004, 3005];
+        if (type === 'parent-discovery-request') {
+          console.log('Parent discovery request received, announcing device...');
           
-          for (const port of broadcastPorts) {
-            try {
-              // Create WebSocket server announcement
-              const wsUrl = `ws://127.0.0.1:${port}`;
-              const ws = new WebSocket(wsUrl);
-              
-              ws.onopen = () => {
-                console.log(`Connected to local network on port ${port}`);
-                ws.send(JSON.stringify({
-                  type: 'baby-monitor-announcement',
-                  device: {
-                    ...deviceData,
-                    timestamp: Date.now(),
-                    status: 'active',
-                    port: port
-                  }
-                }));
-              };
-              
-              ws.onmessage = async (event) => {
-                try {
-                  const data = JSON.parse(event.data);
-                  console.log('Received network message:', data);
-                  
-                  if (data.type === 'connection-request' && streamRef.current) {
-                    console.log('Handling parent connection request from network:', data.parentId);
-                    await handleParentConnection(data.parentId, data.offer);
-                  }
-                } catch (error) {
-                  console.error('Error parsing network message:', error);
-                }
-              };
-              
-              ws.onerror = (error) => {
-                console.log(`WebSocket connection failed on port ${port}:`, error);
-              };
-              
-              // Store the WebSocket reference
-              webSocketRef.current = ws;
-              break;
-              
-            } catch (error) {
-              console.log(`Failed to connect to port ${port}:`, error);
-            }
-          }
-          
-          // Fallback: Use HTTP-like announcement via fetch to common discovery endpoints
-          const networkAnnouncement = {
-            ...deviceData,
-            timestamp: Date.now(),
-            status: 'active',
-            serviceType: '_zoya-baby._tcp',
-            capabilities: ['video', 'audio', 'webrtc']
-          };
-          
-          // Try to announce via mDNS-like mechanism
-          const commonDiscoveryEndpoints = [
-            'http://224.0.0.251:5353', // mDNS multicast
-            'http://192.168.1.255:3000', // Common broadcast
-            'http://10.0.0.255:3000',
-            'http://172.16.255.255:3000'
-          ];
-          
-          for (const endpoint of commonDiscoveryEndpoints) {
-            try {
-              await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(networkAnnouncement),
-                mode: 'no-cors'
-              });
-              console.log(`Announced on ${endpoint}`);
-            } catch (error) {
-              // Silent fail - this is expected for most endpoints
-            }
-          }
-          
-          // Use BroadcastChannel as network bridge
-          const networkChannel = new BroadcastChannel('zoya-network-discovery');
-          networkChannel.postMessage({
-            type: 'baby-monitor-network-announcement',
-            device: networkAnnouncement
-          });
-          
-          // Listen for network connection requests
-          networkChannel.onmessage = async (event) => {
-            const { type, parentId, offer } = event.data;
-            console.log('Received network discovery message:', event.data);
-            
-            if (type === 'network-connection-request' && streamRef.current) {
-              console.log('Handling network parent connection request:', parentId);
-              await handleParentConnection(parentId, offer);
-            }
-          };
-          
-        } catch (error) {
-          console.error('Error in network announcement:', error);
+          // Respond immediately with device announcement
+          setTimeout(() => {
+            networkChannel.postMessage({
+              type: 'baby-monitor-network-announcement',
+              device: {
+                ...deviceData,
+                lastSeen: Date.now()
+              }
+            });
+          }, 100);
+        } else if (type === 'network-connection-request' && event.data.deviceId === deviceData.id) {
+          console.log('Connection request received from parent:', parentId);
+          await handleParentConnection(parentId, event.data.offer);
         }
       };
+      
+      // Periodic device announcement and storage update  
+      const announceOnNetwork = () => {
+        if (!isStreaming) return;
+        
+        const updatedDeviceData = {
+          ...deviceData,
+          lastSeen: Date.now(),
+          timestamp: Date.now()
+        };
+        
+        // Update localStorage
+        localStorage.setItem(networkKey, JSON.stringify(updatedDeviceData));
+        
+        // Broadcast on network channel
+        console.log('Broadcasting device presence on network...');
+        networkChannel.postMessage({
+          type: 'baby-monitor-network-announcement',
+          device: updatedDeviceData
+        });
+      };
 
-      // Announce immediately and then every 2 seconds for better discovery
-      await announceOnNetwork();
+      // Announce immediately
+      announceOnNetwork();
+      
+      // Set up periodic announcements every 2 seconds
       discoveryIntervalRef.current = setInterval(announceOnNetwork, 2000);
+      
+      // Store cleanup function
+      const cleanup = () => {
+        if (discoveryIntervalRef.current) {
+          clearInterval(discoveryIntervalRef.current);
+        }
+        localStorage.removeItem(networkKey);
+        if (networkChannel) {
+          networkChannel.close();
+        }
+      };
+      
+      // Store cleanup function for later use
+      window.addEventListener('beforeunload', cleanup);
       
       console.log('Baby monitor network broadcasting started');
       

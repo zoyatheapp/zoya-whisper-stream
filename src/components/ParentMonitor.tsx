@@ -55,159 +55,109 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       // Clear previous devices
       setDiscoveredDevices([]);
       
-      // Scan network for baby monitors using multiple discovery methods
-      const scanNetwork = async () => {
-        console.log('Starting network scan...');
+      // Method 1: Scan localStorage for network-registered devices
+      const scanStorageDevices = () => {
+        console.log('Scanning localStorage for network devices...');
+        const foundDevices: BabyMonitorDevice[] = [];
         
-        // Method 1: WebSocket scanning on common ports
-        const scanPorts = [3001, 3002, 3003, 3004, 3005];
-        const scanPromises = scanPorts.map(async (port) => {
-          try {
-            const wsUrl = `ws://127.0.0.1:${port}`;
-            const ws = new WebSocket(wsUrl);
-            
-            return new Promise<void>((resolve) => {
-              const timeout = setTimeout(() => {
-                ws.close();
-                resolve();
-              }, 2000);
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('zoya-baby-monitor-')) {
+            try {
+              const deviceData = JSON.parse(localStorage.getItem(key) || '{}');
+              console.log('Found stored device:', deviceData);
               
-              ws.onopen = () => {
-                console.log(`Connected to potential baby monitor on port ${port}`);
-                ws.send(JSON.stringify({
-                  type: 'discovery-request',
-                  parentId: `parent-${Date.now()}`
-                }));
-              };
-              
-              ws.onmessage = (event) => {
-                try {
-                  const data = JSON.parse(event.data);
-                  if (data.type === 'baby-monitor-announcement') {
-                    console.log('Found baby monitor via WebSocket:', data.device);
-                    
-                    setDiscoveredDevices(prevDevices => {
-                      const existingIndex = prevDevices.findIndex(d => d.id === data.device.id);
-                      const updatedDevice = {
-                        ...data.device,
-                        lastSeen: Date.now(),
-                        connectionMethod: 'websocket',
-                        port: port
-                      };
-                      
-                      if (existingIndex >= 0) {
-                        const newDevices = [...prevDevices];
-                        newDevices[existingIndex] = updatedDevice;
-                        return newDevices;
-                      } else {
-                        return [...prevDevices, updatedDevice];
-                      }
-                    });
-                  }
-                } catch (error) {
-                  console.error('Error parsing WebSocket message:', error);
-                }
-                clearTimeout(timeout);
-                ws.close();
-                resolve();
-              };
-              
-              ws.onerror = () => {
-                clearTimeout(timeout);
-                resolve();
-              };
-            });
-          } catch (error) {
-            console.log(`Port ${port} scan failed:`, error);
-          }
-        });
-        
-        // Method 2: Network broadcast channel scanning
-        const networkChannel = new BroadcastChannel('zoya-network-discovery');
-        
-        const handleNetworkAnnouncement = (event: MessageEvent) => {
-          const { type, device } = event.data;
-          console.log('Received network discovery message:', event.data);
-          
-          if (type === 'baby-monitor-network-announcement' && device) {
-            console.log('Found baby monitor via network broadcast:', device);
-            
-            setDiscoveredDevices(prevDevices => {
-              const existingIndex = prevDevices.findIndex(d => d.id === device.id);
-              const updatedDevice = {
-                ...device,
-                lastSeen: Date.now(),
-                connectionMethod: 'broadcast'
-              };
-              
-              if (existingIndex >= 0) {
-                const newDevices = [...prevDevices];
-                newDevices[existingIndex] = updatedDevice;
-                return newDevices;
-              } else {
-                return [...prevDevices, updatedDevice];
+              // Check if device is still active (last seen within 10 seconds)
+              if (deviceData.lastSeen && (Date.now() - deviceData.lastSeen) < 10000) {
+                foundDevices.push({
+                  ...deviceData,
+                  connectionMethod: 'network'
+                });
               }
-            });
+            } catch (error) {
+              console.error('Error parsing stored device:', error);
+            }
           }
-        };
+        }
         
-        networkChannel.onmessage = handleNetworkAnnouncement;
+        if (foundDevices.length > 0) {
+          console.log(`Found ${foundDevices.length} devices in network storage`);
+          setDiscoveredDevices(foundDevices);
+        }
+      };
+      
+      // Method 2: Network broadcast channel scanning
+      const networkChannel = new BroadcastChannel('zoya-network-discovery');
+      
+      const handleNetworkAnnouncement = (event: MessageEvent) => {
+        const { type, device } = event.data;
+        console.log('Received network discovery message:', event.data);
         
-        // Send discovery request
+        if (type === 'baby-monitor-network-announcement' && device) {
+          console.log('Found baby monitor via network broadcast:', device);
+          
+          setDiscoveredDevices(prevDevices => {
+            const existingIndex = prevDevices.findIndex(d => d.id === device.id);
+            const updatedDevice = {
+              ...device,
+              lastSeen: Date.now(),
+              connectionMethod: 'broadcast'
+            };
+            
+            if (existingIndex >= 0) {
+              const newDevices = [...prevDevices];
+              newDevices[existingIndex] = updatedDevice;
+              return newDevices;
+            } else {
+              return [...prevDevices, updatedDevice];
+            }
+          });
+        }
+      };
+      
+      networkChannel.onmessage = handleNetworkAnnouncement;
+      
+      // Send discovery request immediately
+      console.log('Sending parent discovery request...');
+      networkChannel.postMessage({
+        type: 'parent-discovery-request',
+        parentId: `parent-${Date.now()}`,
+        timestamp: Date.now()
+      });
+      
+      // Scan storage immediately
+      scanStorageDevices();
+      
+      // Repeat discovery request every 2 seconds while scanning
+      const discoveryInterval = setInterval(() => {
+        console.log('Sending periodic discovery request...');
         networkChannel.postMessage({
           type: 'parent-discovery-request',
           parentId: `parent-${Date.now()}`,
           timestamp: Date.now()
         });
         
-        // Method 3: Try to fetch from common mDNS-like endpoints
-        const discoveryEndpoints = [
-          'http://192.168.1.255:3000',
-          'http://10.0.0.255:3000', 
-          'http://172.16.255.255:3000'
-        ];
-        
-        const fetchPromises = discoveryEndpoints.map(async (endpoint) => {
-          try {
-            const response = await fetch(`${endpoint}/discover`, {
-              method: 'GET',
-              mode: 'no-cors',
-              signal: AbortSignal.timeout(2000)
-            });
-            // This will likely fail due to CORS, but we try anyway
-            console.log(`Discovery endpoint ${endpoint} responded`);
-          } catch (error) {
-            // Expected to fail, silent
-          }
-        });
-        
-        // Wait for all scan methods to complete or timeout
-        await Promise.allSettled([...scanPromises, ...fetchPromises]);
-        
-        // Cleanup
-        setTimeout(() => {
-          networkChannel.close();
-        }, 1000);
-      };
-      
-      // Start network scanning
-      await scanNetwork();
+        // Also rescan storage
+        scanStorageDevices();
+      }, 2000);
       
       // Set up periodic cleanup of old devices
       const cleanupInterval = setInterval(() => {
         setDiscoveredDevices(prevDevices => 
           prevDevices.filter(device => 
-            device.lastSeen && (Date.now() - device.lastSeen) < 30000 // Remove devices not seen in 30 seconds
+            device.lastSeen && (Date.now() - device.lastSeen) < 15000 // Remove devices not seen in 15 seconds
           )
         );
       }, 5000);
       
-      // Stop scanning after 8 seconds
+      // Stop scanning after 10 seconds
       setTimeout(() => {
         setIsScanning(false);
+        clearInterval(discoveryInterval);
         clearInterval(cleanupInterval);
+        networkChannel.close();
         console.log('Network device scanning completed');
-      }, 8000);
+      }, 10000);
       
     } catch (error) {
       console.error('Error scanning for network devices:', error);
