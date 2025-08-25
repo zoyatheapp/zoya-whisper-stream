@@ -5,7 +5,7 @@ import { Camera, Mic, MicOff, Video, VideoOff, ArrowLeft, Wifi } from 'lucide-re
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Device } from '@capacitor/device';
-import { Network } from '@capacitor/network';
+import { Network, type ConnectionStatus } from '@capacitor/network';
 
 interface BabyMonitorProps {
   onBack: () => void;
@@ -13,10 +13,10 @@ interface BabyMonitorProps {
 
 const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const [isStreaming, setIsStreaming] = useState(false);
-  the [isMicEnabled, setIsMicEnabled] = useState(true);
+  const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
-  const [connectedParents, setConnectedParents] = useState<number>(0);
+  the [connectedParents, setConnectedParents] = useState<number>(0);
   const [showNetworkInfo, setShowNetworkInfo] = useState(false);
   const [ipAddress, setIpAddress] = useState('');
   const [port, setPort] = useState('');
@@ -42,7 +42,12 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
 
         // Request permissions through native APIs
         try {
-          const permissions = await (navigator as any).permissions?.query({ name: 'camera' });
+          const nav = navigator as Navigator & {
+            permissions?: {
+              query(options: { name: string }): Promise<PermissionStatus>;
+            };
+          };
+          const permissions = await nav.permissions?.query({ name: 'camera' as PermissionName });
           console.log('Camera permission status:', permissions?.state);
         } catch (e) {
           console.log('Permissions API not available, proceeding with getUserMedia');
@@ -86,26 +91,28 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       await setupNetworkBroadcasting();
 
       console.log('Baby monitor activated and discoverable on network');
-    } catch (error: any) {
+
+    } catch (error: unknown) {
       console.error('Error accessing camera/microphone:', error);
 
       setConnectionStatus('disconnected');
 
       // Provide more specific error messages for iOS
       let errorMessage = '';
+      const err = error as { name?: string; message?: string };
 
-      if (error.name === 'NotAllowedError') {
+      if (err.name === 'NotAllowedError') {
         errorMessage = 'Camera and microphone access denied. Please go to Settings > Privacy & Security > Camera/Microphone and allow access for this app.';
-      } else if (error.name === 'NotFoundError') {
+      } else if (err.name === 'NotFoundError') {
         errorMessage = 'No camera or microphone found. Please check your device has these capabilities.';
-      } else if (error.name === 'NotReadableError') {
+      } else if (err.name === 'NotReadableError') {
         errorMessage = 'Camera or microphone is busy. Please close other apps using camera/microphone and try again.';
-      } else if (error.name === 'AbortError') {
+      } else if (err.name === 'AbortError') {
         errorMessage = 'Camera access was interrupted. Please try again.';
-      } else if (error.name === 'NotSupportedError') {
+      } else if (err.name === 'NotSupportedError') {
         errorMessage = 'Camera/microphone not supported on this device or browser.';
       } else {
-        errorMessage = `Permission error: ${error.message}. Please check app permissions in device settings.`;
+        errorMessage = `Permission error: ${err.message}. Please check app permissions in device settings.`;
       }
 
       alert(errorMessage);
@@ -170,8 +177,8 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
 
   const handleShowNetworkInfo = async () => {
     try {
-      const status = await Network.getStatus();
-      const host = (status as any).ipAddress || window.location.hostname;
+      const status = await Network.getStatus() as ConnectionStatus & { ipAddress?: string };
+      const host = status.ipAddress || window.location.hostname;
       const currentPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
       setIpAddress(host);
       setPort(currentPort);
@@ -186,7 +193,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
     try {
       const deviceInfo = await Device.getInfo();
       const deviceId = await Device.getId();
-      const networkStatus = await Network.getStatus();
+      const networkStatus = await Network.getStatus() as ConnectionStatus & { ipAddress?: string };
 
       console.log('Network status:', networkStatus);
       console.log('Setting up baby monitor for network discovery...');
@@ -196,7 +203,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         return;
       }
 
-      const networkAddress = (networkStatus as any).ipAddress || window.location.hostname;
+      const networkAddress = networkStatus.ipAddress || window.location.hostname;
       const currentPort = window.location.port ? parseInt(window.location.port) : undefined;
 
       const deviceData = {
@@ -288,6 +295,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       window.addEventListener('beforeunload', cleanup);
 
       console.log('Baby monitor network broadcasting started');
+
     } catch (error) {
       console.error('Error setting up network broadcasting:', error);
     }
