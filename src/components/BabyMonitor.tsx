@@ -16,7 +16,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const [isMicEnabled, setIsMicEnabled] = useState(true);
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
-  the [connectedParents, setConnectedParents] = useState<number>(0);
+  const [connectedParents, setConnectedParents] = useState<number>(0);
   const [showNetworkInfo, setShowNetworkInfo] = useState(false);
   const [ipAddress, setIpAddress] = useState('');
   const [port, setPort] = useState('');
@@ -84,7 +84,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         }
       }
 
-      setIsStreaming(true);
+      setIsStreaming(true;
       setConnectionStatus('connected');
 
       // Setup network broadcasting for device discovery
@@ -192,7 +192,24 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const setupNetworkBroadcasting = async () => {
     try {
       const deviceInfo = await Device.getInfo();
-      const deviceId = await Device.getId();
+      // getId is only implemented on native platforms. On web it will log an
+      // "unimplemented" error which previously surfaced as ⚡️ [error] - {} in the
+      // console. To avoid that noisy error and still provide a stable ID for
+      // discovery, only call getId on native platforms and fall back to a
+      // generated identifier otherwise.
+      let deviceIdentifier: string;
+      try {
+        if (Capacitor.isNativePlatform()) {
+          const idInfo = await Device.getId();
+          deviceIdentifier = idInfo.identifier ?? `baby-${Date.now()}`;
+        } else {
+          deviceIdentifier = `baby-${Date.now()}`;
+        }
+      } catch (err) {
+        console.warn('Device ID not available:', err);
+        deviceIdentifier = `baby-${Date.now()}`;
+      }
+
       const networkStatus = await Network.getStatus() as ConnectionStatus & { ipAddress?: string };
 
       console.log('Network status:', networkStatus);
@@ -207,7 +224,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       const currentPort = window.location.port ? parseInt(window.location.port) : undefined;
 
       const deviceData = {
-        id: deviceId.identifier || `baby-${Date.now()}`,
+        id: deviceIdentifier,
         name: `${deviceInfo.model || 'Baby'} Room Monitor`,
         platform: deviceInfo.platform,
         type: 'baby-monitor',
