@@ -111,7 +111,6 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         status: 'active',
         lastSeen: Date.now(),
         networkId: networkStatus.connectionType,
-        networkAddress: '192.168.1.100' // Simulated IP for network representation
         networkAddress,
         port: currentPort
       };
@@ -165,7 +164,6 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
                 <div>
                   <p className="font-medium text-card-foreground">Broadcasting on Local Network</p>
                   <p className="text-sm text-muted-foreground">
-                    {connectedParents > 0 
                     {connectedParents > 0
                       ? `${connectedParents} parent${connectedParents > 1 ? 's' : ''} connected`
                       : 'Ready for parent connections'
