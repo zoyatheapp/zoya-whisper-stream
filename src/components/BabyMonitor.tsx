@@ -84,8 +84,8 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         }
       }
 
-      setIsStreaming(true;
-      setConnectionStatus('connected');
+setIsStreaming(true);
+setConnectionStatus('connected');
 
       // Setup network broadcasting for device discovery
       await setupNetworkBroadcasting();
