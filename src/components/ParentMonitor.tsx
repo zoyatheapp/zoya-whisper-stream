@@ -32,6 +32,26 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
+
+    const [manualIp, setManualIp] = useState('');
+  const [manualPort, setManualPort] = useState('');
+
+  const connectManual = () => {
+    if (!manualIp || !manualPort) return;
+    const device: BabyMonitorDevice = {
+      id: `manual-${manualIp}-${manualPort}`,
+      name: `Manual Device (${manualIp})`,
+      type: 'baby-monitor',
+      status: 'active',
+      timestamp: Date.now(),
+      lastSeen: Date.now(),
+      connectionMethod: 'manual',
+      networkAddress: manualIp,
+      port: parseInt(manualPort, 10)
+    };
+    connectToDevice(device);
+  };
+
   const stopScanning = () => {
     console.log('Stopping network device scanning...');
     setIsScanning(false);
@@ -218,8 +238,9 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       // Also try WebSocket connection if device has port info
       if (device.port) {
         try {
-          const wsUrl = `ws://127.0.0.1:${device.port}`;
-          const ws = new WebSocket(wsUrl);
+         
+          const host = device.networkAddress || '127.0.0.1';
+          const wsUrl = `ws://${host}:${device.port}`;
           
           ws.onopen = () => {
             console.log('Connected via WebSocket, sending connection request');
@@ -468,6 +489,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
         {!isScanning && (
           <Card className="p-4 mb-6">
             <Button 
+            <Button 
               onClick={scanForDevices}
               className="w-full"
               size="lg"
@@ -476,7 +498,38 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
             </Button>
           </Card>
         )}
-
+        {/* Manual Connect */}
+        <Card className="p-4 mb-6">
+          <div className="grid gap-4">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label htmlFor="manual-ip">IP Address</Label>
+                <Input
+                  id="manual-ip"
+                  value={manualIp}
+                  onChange={(e) => setManualIp(e.target.value)}
+                  placeholder="192.168.1.100"
+                />
+              </div>
+              <div>
+                <Label htmlFor="manual-port">Port</Label>
+                <Input
+                  id="manual-port"
+                  value={manualPort}
+                  onChange={(e) => setManualPort(e.target.value)}
+                  placeholder="5000"
+                />
+              </div>
+            </div>
+            <Button
+              onClick={connectManual}
+              className="w-full"
+              disabled={!manualIp || !manualPort || isConnecting}
+            >
+              Connect Manually
+            </Button>
+          </div>
+        </Card>
         {/* Available Devices */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
