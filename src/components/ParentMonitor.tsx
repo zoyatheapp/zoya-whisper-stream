@@ -223,86 +223,106 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       });
 
       await peerConnection.setLocalDescription(offer);
-      console.log('Created offer, sending to network baby monitor...');
+      console.log('Created offer, sending to baby monitor...');
 
       const parentId = `parent-${Date.now()}`;
+      const baseUrl = `http://${device.networkAddress}:${device.port}`;
 
-      // Send connection request via network discovery channel
-      const networkChannel = new BroadcastChannel('zoya-network-discovery');
+      console.log('Attempting to connect to baby monitor at:', baseUrl);
 
-      networkChannel.postMessage({
-        type: 'network-connection-request',
-        parentId,
-        deviceId: device.id,
-        offer
+      // Send WebRTC offer to baby monitor via HTTP
+      const offerResponse = await fetch(`${baseUrl}/webrtc/offer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          parentId,
+          offer
+        })
       });
 
-      // Set up ICE candidate handling
-      peerConnection.onicecandidate = (event) => {
+      if (!offerResponse.ok) {
+        throw new Error(`HTTP ${offerResponse.status}: ${offerResponse.statusText}`);
+      }
+
+      const { answer } = await offerResponse.json();
+      console.log('Received answer from baby monitor');
+
+      await peerConnection.setRemoteDescription(answer);
+
+      // Set up ICE candidate exchange
+      peerConnection.onicecandidate = async (event) => {
         if (event.candidate) {
           console.log('Sending ICE candidate to baby monitor');
-          networkChannel.postMessage({
-            type: 'ice-candidate',
-            parentId,
-            deviceId: device.id,
-            candidate: event.candidate
-          });
-        }
-      };
-
-      console.log('WebRTC connection request sent to baby monitor at', device.networkAddress);
-
-      // Listen for answer and ICE candidates via network channel
-      const handleNetworkAnswer = async (event: MessageEvent) => {
-        const { type, answer, candidate, parentId: responseParentId } = event.data;
-        
-        if (responseParentId === parentId) {
-          if (type === 'connection-answer') {
-            console.log('Received answer from network baby monitor at', device.networkAddress);
-            try {
-              await peerConnection.setRemoteDescription(answer);
-              setConnectedDevice(device);
-              setIsConnecting(false);
-              console.log('Successfully connected to baby monitor!');
-            } catch (error) {
-              console.error('Error setting remote description:', error);
-              setIsConnecting(false);
-            }
-          } else if (type === 'ice-candidate-response' && candidate) {
-            console.log('Received ICE candidate from baby monitor');
-            try {
-              await peerConnection.addIceCandidate(candidate);
-            } catch (error) {
-              console.error('Error adding ICE candidate:', error);
-            }
+          try {
+            await fetch(`${baseUrl}/webrtc/ice-candidate`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                parentId,
+                candidate: event.candidate
+              })
+            });
+          } catch (error) {
+            console.error('Failed to send ICE candidate:', error);
           }
         }
       };
 
-      networkChannel.onmessage = handleNetworkAnswer;
-
-      // Connection timeout
-      setTimeout(() => {
-        if (!connectedDevice) {
-          console.log('Connection timeout - failed to connect to baby monitor at', device.networkAddress);
-          setIsConnecting(false);
-          peerConnection.close();
-          networkChannel.close();
+      // Poll for ICE candidates from baby monitor
+      const pollForCandidates = async () => {
+        try {
+          const response = await fetch(`${baseUrl}/webrtc/get-candidates/${parentId}`);
+          if (response.ok) {
+            const { candidates } = await response.json();
+            for (const candidate of candidates) {
+              console.log('Received ICE candidate from baby monitor');
+              await peerConnection.addIceCandidate(candidate);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to poll for ICE candidates:', error);
         }
-      }, 15000);
+      };
 
+      // Start polling for ICE candidates
+      const candidateInterval = setInterval(pollForCandidates, 1000);
+
+      // Connection state monitoring
       peerConnection.onconnectionstatechange = () => {
         console.log('Peer connection state:', peerConnection.connectionState);
         if (peerConnection.connectionState === 'connected') {
-          console.log('Successfully connected to network baby monitor!');
+          console.log('Successfully connected to baby monitor!');
+          setConnectedDevice(device);
+          setIsConnecting(false);
+          clearInterval(candidateInterval);
         } else if (peerConnection.connectionState === 'disconnected' ||
                    peerConnection.connectionState === 'failed') {
+          clearInterval(candidateInterval);
           handleDisconnect();
         }
       };
 
+      // Connection timeout
+      setTimeout(() => {
+        if (!connectedDevice) {
+          console.log('Connection timeout - failed to connect to baby monitor');
+          setIsConnecting(false);
+          clearInterval(candidateInterval);
+          peerConnection.close();
+        }
+      }, 15000);
+
     } catch (error) {
-      console.error('Error connecting to baby monitor at', device.networkAddress + ':' + device.port, error);
+      console.error('Error connecting to baby monitor:', error);
+      console.error('Full error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       setIsConnecting(false);
     }
   };

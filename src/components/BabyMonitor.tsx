@@ -282,15 +282,97 @@ setConnectionStatus('connected');
     });
   };
 
-  // Setup network broadcasting for device discovery using localStorage and BroadcastChannel
+  // HTTP server simulation for WebRTC signaling
+  const setupHTTPSignalingServer = () => {
+    console.log('Setting up HTTP signaling server simulation...');
+    
+    // Store for WebRTC signaling data
+    const signalingData = {
+      offers: new Map(),
+      answers: new Map(),
+      candidates: new Map()
+    };
+
+    // Simulate HTTP endpoints using localStorage and polling
+    const serverEndpoints = {
+      handleOffer: async (parentId: string, offer: RTCSessionDescriptionInit) => {
+        console.log('Received WebRTC offer from parent:', parentId);
+        const answer = await handleParentConnection(parentId, offer);
+        return { answer };
+      },
+
+      handleICECandidate: (parentId: string, candidate: RTCIceCandidate) => {
+        console.log('Received ICE candidate from parent:', parentId);
+        if (!signalingData.candidates.has(parentId)) {
+          signalingData.candidates.set(parentId, []);
+        }
+        signalingData.candidates.get(parentId).push(candidate);
+        
+        // Apply candidate to existing peer connection
+        const peerConnection = peerConnectionsRef.current.get(parentId);
+        if (peerConnection) {
+          peerConnection.addIceCandidate(candidate);
+        }
+        return { success: true };
+      },
+
+      getCandidates: (parentId: string) => {
+        const candidates = signalingData.candidates.get(parentId) || [];
+        signalingData.candidates.set(parentId, []); // Clear after retrieval
+        return { candidates };
+      }
+    };
+
+    // Store endpoints in window for access by fetch simulation
+    (window as any).babyMonitorSignaling = serverEndpoints;
+    
+    // Intercept fetch requests to baby monitor endpoints
+    const originalFetch = window.fetch;
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      
+      // Check if this is a request to our baby monitor endpoints
+      if (url.includes('/webrtc/')) {
+        console.log('Intercepting WebRTC signaling request:', url);
+        
+        try {
+          const body = init?.body ? JSON.parse(init.body as string) : {};
+          let result;
+          
+          if (url.includes('/webrtc/offer')) {
+            result = await serverEndpoints.handleOffer(body.parentId, body.offer);
+          } else if (url.includes('/webrtc/ice-candidate')) {
+            result = serverEndpoints.handleICECandidate(body.parentId, body.candidate);
+          } else if (url.includes('/webrtc/get-candidates/')) {
+            const parentId = url.split('/').pop();
+            result = serverEndpoints.getCandidates(parentId!);
+          }
+          
+          // Return a fake successful response
+          return new Response(JSON.stringify(result), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (error) {
+          console.error('Error in fetch simulation:', error);
+          return new Response(JSON.stringify({ error: error.message }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+      
+      // For non-baby monitor requests, use original fetch
+      return originalFetch(input, init);
+    };
+    
+    console.log('HTTP signaling server ready with fetch interception');
+  };
+
+  // Setup network broadcasting for device discovery
   const setupNetworkBroadcasting = async () => {
     try {
       const deviceInfo = await Device.getInfo();
-      // getId is only implemented on native platforms. On web it will log an
-      // "unimplemented" error which previously surfaced as ⚡️ [error] - {} in the
-      // console. To avoid that noisy error and still provide a stable ID for
-      // discovery, only call getId on native platforms and fall back to a
-      // generated identifier otherwise.
       let deviceIdentifier: string;
       try {
         if (Capacitor.isNativePlatform()) {
@@ -304,18 +386,11 @@ setConnectionStatus('connected');
         deviceIdentifier = `baby-${Date.now()}`;
       }
 
-      const networkStatus = await Network.getStatus() as ConnectionStatus & { ipAddress?: string };
-
-      console.log('Network status:', networkStatus);
       console.log('Setting up baby monitor for network discovery...');
 
-      if (!networkStatus.connected) {
-        console.log('Device not connected to network');
-        return;
-      }
-
-      const networkAddress = networkStatus.ipAddress || window.location.hostname;
-      const currentPort = window.location.port ? parseInt(window.location.port) : undefined;
+      // Get local IP address
+      const localIP = await getLocalIPAddress();
+      const port = window.location.port ? parseInt(window.location.port) : 8080;
 
       const deviceData = {
         id: deviceIdentifier,
@@ -325,90 +400,16 @@ setConnectionStatus('connected');
         timestamp: Date.now(),
         status: 'active',
         lastSeen: Date.now(),
-        networkId: networkStatus.connectionType,
-        networkAddress,
-        port: currentPort
+        networkAddress: localIP,
+        port: port
       };
 
       console.log('Device data created:', deviceData);
 
-      // Store device in localStorage with network-like key for discovery
-      const networkKey = `zoya-baby-monitor-${deviceData.id}`;
-      localStorage.setItem(networkKey, JSON.stringify(deviceData));
-      console.log('Device stored in network registry:', networkKey);
+      // Setup HTTP signaling server
+      setupHTTPSignalingServer();
 
-      // Create network discovery channel
-      const networkChannel = new BroadcastChannel('zoya-network-discovery');
-
-      // Listen for discovery requests from parent monitors
-      networkChannel.onmessage = async (event) => {
-        const { type, parentId } = event.data;
-        console.log('Received network discovery message:', event.data);
-
-        if (type === 'parent-discovery-request') {
-          console.log('Parent discovery request received, announcing device...');
-
-          // Respond immediately with device announcement
-          setTimeout(() => {
-            networkChannel.postMessage({
-              type: 'baby-monitor-network-announcement',
-              device: {
-                ...deviceData,
-                lastSeen: Date.now()
-              }
-            });
-          }, 100);
-        } else if (type === 'network-connection-request' && event.data.deviceId === deviceData.id) {
-          console.log('Connection request received from parent:', parentId);
-          await handleParentConnection(parentId, event.data.offer);
-        } else if (type === 'ice-candidate' && event.data.deviceId === deviceData.id) {
-          console.log('ICE candidate received from parent:', parentId);
-          await handleICECandidate(parentId, event.data.candidate);
-        }
-      };
-
-      // Periodic device announcement and storage update
-      const announceOnNetwork = () => {
-        if (!isStreaming) return;
-
-        const updatedDeviceData = {
-          ...deviceData,
-          lastSeen: Date.now(),
-          timestamp: Date.now()
-        };
-
-        // Update localStorage
-        localStorage.setItem(networkKey, JSON.stringify(updatedDeviceData));
-
-        // Broadcast on network channel
-        console.log('Broadcasting device presence on network...');
-        networkChannel.postMessage({
-          type: 'baby-monitor-network-announcement',
-          device: updatedDeviceData
-        });
-      };
-
-      // Announce immediately
-      announceOnNetwork();
-
-      // Set up periodic announcements every 2 seconds
-      discoveryIntervalRef.current = setInterval(announceOnNetwork, 2000);
-
-      // Store cleanup function
-      const cleanup = () => {
-        if (discoveryIntervalRef.current) {
-          clearInterval(discoveryIntervalRef.current);
-        }
-        localStorage.removeItem(networkKey);
-        if (networkChannel) {
-          networkChannel.close();
-        }
-      };
-
-      // Store cleanup function for later use
-      window.addEventListener('beforeunload', cleanup);
-
-      console.log('Baby monitor network broadcasting started');
+      console.log('Baby monitor network setup completed');
 
     } catch (error) {
       console.error('Error setting up network broadcasting:', error);
@@ -428,7 +429,7 @@ setConnectionStatus('connected');
     }
   };
 
-  const handleParentConnection = async (parentId: string, offer: RTCSessionDescriptionInit) => {
+  const handleParentConnection = async (parentId: string, offer: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> => {
     try {
       console.log('Setting up WebRTC connection with parent:', parentId);
 
@@ -447,19 +448,6 @@ setConnectionStatus('connected');
         });
       }
 
-      // Send ICE candidates to parent
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          console.log('Sending ICE candidate to parent:', parentId);
-          const networkChannel = new BroadcastChannel('zoya-network-discovery');
-          networkChannel.postMessage({
-            type: 'ice-candidate-response',
-            parentId,
-            candidate: event.candidate
-          });
-        }
-      };
-
       // Set remote description (offer from parent)
       await peerConnection.setRemoteDescription(offer);
 
@@ -467,26 +455,7 @@ setConnectionStatus('connected');
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
 
-      console.log('Created answer, sending back to parent...');
-
-      // Send answer back via network discovery channel for consistency
-      const networkChannel = new BroadcastChannel('zoya-network-discovery');
-      networkChannel.postMessage({
-        type: 'connection-answer',
-        parentId,
-        answer
-      });
-
-      console.log('Answer sent via network discovery channel');
-
-      // Also store in localStorage for parent to pick up
-      const answerKey = `baby-answer-${parentId}`;
-      localStorage.setItem(answerKey, JSON.stringify({
-        type: 'connection-answer',
-        parentId,
-        answer,
-        timestamp: Date.now()
-      }));
+      console.log('Created answer for parent:', parentId);
 
       // Store peer connection
       peerConnectionsRef.current.set(parentId, peerConnection);
@@ -502,8 +471,11 @@ setConnectionStatus('connected');
         }
       };
 
+      return answer;
+
     } catch (error) {
       console.error('Error handling parent connection:', error);
+      throw error;
     }
   };
 
