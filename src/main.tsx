@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
+import { ensureWebRTCGlobals } from '@/lib/webrtc'
 
-createRoot(document.getElementById("root")!).render(<App />);
+ensureWebRTCGlobals();
+createRoot(document.getElementById('root')!).render(<App />);
