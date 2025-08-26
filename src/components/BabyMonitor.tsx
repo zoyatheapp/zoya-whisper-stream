@@ -25,6 +25,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const discoveryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const webSocketRef = useRef<WebSocket | null>(null);
+  
   useEffect(() => {
     ensureWebRTCGlobals();
   }, []);
@@ -57,13 +58,13 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         }
       }
 
-      const constraints = {
+      const constraints: MediaStreamConstraints = {
         video: {
           facingMode: 'user',
           width: { ideal: 640, max: 1280 },
-          height: { ideal: 480, max: 720 }
+          height: { ideal: 480, max: 720 },
         }
-      audio: true
+        audio: true,
 
       };
 
