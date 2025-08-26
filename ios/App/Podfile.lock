@@ -1,0 +1,52 @@
+PODS:
+  - Capacitor (7.4.3):
+    - CapacitorCordova
+  - CapacitorCamera (7.0.2):
+    - Capacitor
+  - CapacitorCordova (7.4.3)
+  - CapacitorDevice (7.0.2):
+    - Capacitor
+  - CapacitorHaptics (7.0.2):
+    - Capacitor
+  - CapacitorNetwork (7.0.2):
+    - Capacitor
+  - CordovaPlugins (7.4.3):
+    - CapacitorCordova
+
+DEPENDENCIES:
+  - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorCamera (from `../../node_modules/@capacitor/camera`)"
+  - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorDevice (from `../../node_modules/@capacitor/device`)"
+  - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
+  - "CapacitorNetwork (from `../../node_modules/@capacitor/network`)"
+  - CordovaPlugins (from `../capacitor-cordova-ios-plugins`)
+
+EXTERNAL SOURCES:
+  Capacitor:
+    :path: "../../node_modules/@capacitor/ios"
+  CapacitorCamera:
+    :path: "../../node_modules/@capacitor/camera"
+  CapacitorCordova:
+    :path: "../../node_modules/@capacitor/ios"
+  CapacitorDevice:
+    :path: "../../node_modules/@capacitor/device"
+  CapacitorHaptics:
+    :path: "../../node_modules/@capacitor/haptics"
+  CapacitorNetwork:
+    :path: "../../node_modules/@capacitor/network"
+  CordovaPlugins:
+    :path: "../capacitor-cordova-ios-plugins"
+
+SPEC CHECKSUMS:
+  Capacitor: b4741ca7affb32c1b70debd03df92cbf522d8a80
+  CapacitorCamera: 6e18d54c8ab30d7dc7b8cd93d96f9b4f57e9202a
+  CapacitorCordova: 435121e81a2df4d0034f0fb11fcefab5104cfdb5
+  CapacitorDevice: a50a45f0d075e55e2392c7a4be5404d4f69515de
+  CapacitorHaptics: 09d96bcb5a2b74ede8fd039b4cdf58fc43dcacf1
+  CapacitorNetwork: 9b9eaeb417ec0ffa22e2bc33a4c71df10e1d6f06
+  CordovaPlugins: 354dbe7314a4112431bf2d1803cf8cdd2630e70f
+
+PODFILE CHECKSUM: 972c14f397869b94dda1c2b340f508ef15ca3b89
+
+COCOAPODS: 1.16.2
