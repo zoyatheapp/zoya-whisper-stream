@@ -177,15 +177,72 @@ setConnectionStatus('connected');
 
   const handleShowNetworkInfo = async () => {
     try {
-      const status = await Network.getStatus() as ConnectionStatus & { ipAddress?: string };
-      const host = status.ipAddress || window.location.hostname;
-      const currentPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-      setIpAddress(host);
+      // Use WebRTC to discover local IP address
+      const localIP = await getLocalIPAddress();
+      const currentPort = '8080'; // Use a consistent port for baby monitor
+      
+      setIpAddress(localIP);
       setPort(currentPort);
       setShowNetworkInfo(true);
+      
+      console.log('Network info - IP:', localIP, 'Port:', currentPort);
     } catch (error) {
       console.error('Error getting network info:', error);
+      // Fallback to basic info
+      setIpAddress(window.location.hostname);
+      setPort(window.location.port || '80');
+      setShowNetworkInfo(true);
     }
+  };
+
+  // Function to get actual local IP address using WebRTC
+  const getLocalIPAddress = (): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const rtc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      // Create a dummy data channel
+      rtc.createDataChannel('');
+
+      rtc.onicecandidate = (e) => {
+        if (e.candidate) {
+          const candidate = e.candidate.candidate;
+          console.log('ICE candidate:', candidate);
+          
+          // Extract IP from candidate string
+          const match = candidate.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+          if (match && match[1]) {
+            const ip = match[1];
+            // Skip localhost and other non-useful IPs
+            if (!ip.startsWith('127.') && !ip.startsWith('0.') && ip !== '0.0.0.0') {
+              console.log('Found local IP:', ip);
+              rtc.close();
+              resolve(ip);
+              return;
+            }
+          }
+        }
+      };
+
+      rtc.onicegatheringstatechange = () => {
+        if (rtc.iceGatheringState === 'complete') {
+          rtc.close();
+          reject(new Error('Could not determine local IP address'));
+        }
+      };
+
+      // Create offer to start ICE gathering
+      rtc.createOffer()
+        .then(offer => rtc.setLocalDescription(offer))
+        .catch(reject);
+
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        rtc.close();
+        reject(new Error('Timeout getting local IP address'));
+      }, 5000);
+    });
   };
 
   // Setup network broadcasting for device discovery using localStorage and BroadcastChannel
