@@ -202,6 +202,8 @@ setConnectionStatus('connected');
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
 
+      let candidates: string[] = [];
+
       // Create a dummy data channel
       rtc.createDataChannel('');
 
@@ -214,12 +216,11 @@ setConnectionStatus('connected');
           const match = candidate.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
           if (match && match[1]) {
             const ip = match[1];
+            console.log('Found IP candidate:', ip);
+            
             // Skip localhost and other non-useful IPs
-            if (!ip.startsWith('127.') && !ip.startsWith('0.') && ip !== '0.0.0.0') {
-              console.log('Found local IP:', ip);
-              rtc.close();
-              resolve(ip);
-              return;
+            if (!ip.startsWith('127.') && !ip.startsWith('0.') && ip !== '0.0.0.0' && !ip.startsWith('169.254.')) {
+              candidates.push(ip);
             }
           }
         }
@@ -228,7 +229,25 @@ setConnectionStatus('connected');
       rtc.onicegatheringstatechange = () => {
         if (rtc.iceGatheringState === 'complete') {
           rtc.close();
-          reject(new Error('Could not determine local IP address'));
+          
+          if (candidates.length > 0) {
+            // Prioritize local network IPs
+            const localIPs = candidates.filter(ip => 
+              ip.startsWith('192.168.') || 
+              ip.startsWith('10.') || 
+              (ip.startsWith('172.') && parseInt(ip.split('.')[1]) >= 16 && parseInt(ip.split('.')[1]) <= 31)
+            );
+            
+            console.log('Local IP candidates:', localIPs);
+            console.log('All IP candidates:', candidates);
+            
+            // Use local network IP if available, otherwise use first available
+            const selectedIP = localIPs.length > 0 ? localIPs[0] : candidates[0];
+            console.log('Selected IP:', selectedIP);
+            resolve(selectedIP);
+          } else {
+            reject(new Error('Could not determine local IP address'));
+          }
         }
       };
 
@@ -237,11 +256,29 @@ setConnectionStatus('connected');
         .then(offer => rtc.setLocalDescription(offer))
         .catch(reject);
 
-      // Timeout after 5 seconds
+      // Timeout after 8 seconds to allow more candidates
       setTimeout(() => {
         rtc.close();
-        reject(new Error('Timeout getting local IP address'));
-      }, 5000);
+        
+        if (candidates.length > 0) {
+          // Prioritize local network IPs
+          const localIPs = candidates.filter(ip => 
+            ip.startsWith('192.168.') || 
+            ip.startsWith('10.') || 
+            (ip.startsWith('172.') && parseInt(ip.split('.')[1]) >= 16 && parseInt(ip.split('.')[1]) <= 31)
+          );
+          
+          console.log('Timeout - Local IP candidates:', localIPs);
+          console.log('Timeout - All IP candidates:', candidates);
+          
+          // Use local network IP if available, otherwise use first available
+          const selectedIP = localIPs.length > 0 ? localIPs[0] : candidates[0];
+          console.log('Timeout - Selected IP:', selectedIP);
+          resolve(selectedIP);
+        } else {
+          reject(new Error('Timeout getting local IP address'));
+        }
+      }, 8000);
     });
   };
 
