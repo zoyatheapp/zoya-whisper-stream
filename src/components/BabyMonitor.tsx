@@ -6,16 +6,11 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Device } from '@capacitor/device';
 import { Network, type ConnectionStatus } from '@capacitor/network';
-<<<<<<< ours
-import { ensureWebRTCGlobals } from '@/lib/webrtc';
-=======
 import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
->>>>>>> theirs
 
 interface BabyMonitorProps {
   onBack: () => void;
 }
-
 const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
@@ -30,7 +25,6 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const discoveryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const webSocketRef = useRef<WebSocket | null>(null);
-
   useEffect(() => {
     ensureWebRTCGlobals();
   }, []);
@@ -68,12 +62,9 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
           facingMode: 'user',
           width: { ideal: 640, max: 1280 },
           height: { ideal: 480, max: 720 }
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
         }
+      audio: true
+
       };
 
       console.log('Requesting camera and microphone access...');
@@ -81,9 +72,11 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       console.log('Stream obtained successfully:', stream);
 
       if (videoRef.current) {
+        // Make sure the element is prepared for iOSRTC rendering
+        videoRef.current.setAttribute('playsinline', 'true');
+        observeVideo(videoRef.current);
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
-        observeVideo(videoRef.current);
 
         // Ensure video plays on mobile - important for iOS
         try {
@@ -94,8 +87,8 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         }
       }
 
-setIsStreaming(true);
-setConnectionStatus('connected');
+      setIsStreaming(true);
+      setConnectionStatus('connected');
 
       // Setup network broadcasting for device discovery
       await setupNetworkBroadcasting();
