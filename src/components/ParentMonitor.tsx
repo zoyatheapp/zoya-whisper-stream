@@ -10,6 +10,7 @@ import { Network } from '@capacitor/network';
 import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
 
 
+
 interface BabyMonitorDevice {
   id: string;
   name: string;
@@ -246,22 +247,33 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       console.log('Attempting to connect to baby monitor at:', baseUrl);
 
       // Send WebRTC offer to baby monitor via HTTP
-      const offerResponse = await fetch(`${baseUrl}/webrtc/offer`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          parentId,
-          offer
-        })
-      });
+      const sendOffer = async () => {
+        const url = `${baseUrl}/webrtc/offer`;
+        const payload = { parentId, offer };
+        if (Capacitor.isNativePlatform()) {
+          const response = await Http.post({
+            url,
+            headers: { 'Content-Type': 'application/json' },
+            data: payload
+          });
+          if (response.status < 200 || response.status >= 300) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+        } else {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
+          return res.json();
+        }
+      };
 
-      if (!offerResponse.ok) {
-        throw new Error(`HTTP ${offerResponse.status}: ${offerResponse.statusText}`);
-      }
-
-      const { answer } = await offerResponse.json();
+      const { answer } = await sendOffer();
       console.log('Received answer from baby monitor');
 
       await peerConnection.setRemoteDescription(answer);
@@ -270,17 +282,22 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       peerConnection.onicecandidate = async (event) => {
         if (event.candidate) {
           console.log('Sending ICE candidate to baby monitor');
+          const url = `${baseUrl}/webrtc/ice-candidate`;
+          const data = { parentId, candidate: event.candidate };
           try {
-            await fetch(`${baseUrl}/webrtc/ice-candidate`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                parentId,
-                candidate: event.candidate
-              })
-            });
+            if (Capacitor.isNativePlatform()) {
+              await Http.post({
+                url,
+                headers: { 'Content-Type': 'application/json' },
+                data
+              });
+            } else {
+              await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+              });
+            }
           } catch (error) {
             console.error('Failed to send ICE candidate:', error);
           }
@@ -290,13 +307,25 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       // Poll for ICE candidates from baby monitor
       const pollForCandidates = async () => {
         try {
-          const response = await fetch(`${baseUrl}/webrtc/get-candidates/${parentId}`);
-          if (response.ok) {
-            const { candidates } = await response.json();
-            for (const candidate of candidates) {
-              console.log('Received ICE candidate from baby monitor');
-              await peerConnection.addIceCandidate(candidate);
+          const url = `${baseUrl}/webrtc/get-candidates/${parentId}`;
+          let candidates: RTCIceCandidateInit[] = [];
+          if (Capacitor.isNativePlatform()) {
+            const res = await Http.get({ url });
+            if (res.status === 200) {
+              const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+              candidates = (data.candidates || []) as RTCIceCandidateInit[];
+
             }
+          } else {
+            const response = await fetch(url);
+            if (response.ok) {
+              const data = await response.json();
+              candidates = (data.candidates || []) as RTCIceCandidateInit[];
+            }
+          } 
+          for (const candidate of candidates) {
+            console.log('Received ICE candidate from baby monitor');
+            await peerConnection.addIceCandidate(candidate);
           }
         } catch (error) {
           console.error('Failed to poll for ICE candidates:', error);
