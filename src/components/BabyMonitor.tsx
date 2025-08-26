@@ -58,13 +58,14 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         }
       }
 
+
 const constraints: MediaStreamConstraints = {
   audio: true,
   video: {
     facingMode: 'user',
     width: { ideal: 640, max: 1280 },
     height: { ideal: 480, max: 720 }
-  },
+  }
 };
 
 
