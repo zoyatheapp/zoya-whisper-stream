@@ -237,54 +237,44 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
         offer
       });
 
-      // Also try WebSocket connection if device has port info
-      if (device.port) {
-        try {
-          const host = device.networkAddress || '127.0.0.1';
-          const wsUrl = `ws://${host}:${device.port}`;
-          const ws = new WebSocket(wsUrl);
-
-          ws.onopen = () => {
-            console.log('Connected via WebSocket, sending connection request');
-            ws.send(JSON.stringify({
-              type: 'connection-request',
-              parentId,
-              offer
-            }));
-          };
-
-          ws.onmessage = async (event) => {
-            try {
-              const data = JSON.parse(event.data);
-              if (data.type === 'connection-answer' && data.parentId === parentId) {
-                console.log('Received answer via WebSocket');
-                await peerConnection.setRemoteDescription(data.answer);
-                setConnectedDevice(device);
-                setIsConnecting(false);
-                ws.close();
-                networkChannel.close();
-              }
-            } catch (error) {
-              console.error('Error parsing WebSocket answer:', error);
-            }
-          };
-        } catch (error) {
-          console.log('WebSocket connection failed:', error);
+      // Set up ICE candidate handling
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log('Sending ICE candidate to baby monitor');
+          networkChannel.postMessage({
+            type: 'ice-candidate',
+            parentId,
+            deviceId: device.id,
+            candidate: event.candidate
+          });
         }
-      }
+      };
 
-      // Listen for answer via network channel
+      console.log('WebRTC connection request sent to baby monitor at', device.networkAddress);
+
+      // Listen for answer and ICE candidates via network channel
       const handleNetworkAnswer = async (event: MessageEvent) => {
-        const { type, answer, parentId: responseParentId } = event.data;
-        if (type === 'connection-answer' && responseParentId === parentId) {
-          console.log('Received answer from network baby monitor');
-          try {
-            await peerConnection.setRemoteDescription(answer);
-            setConnectedDevice(device);
-            setIsConnecting(false);
-            networkChannel.close();
-          } catch (error) {
-            console.error('Error setting remote description:', error);
+        const { type, answer, candidate, parentId: responseParentId } = event.data;
+        
+        if (responseParentId === parentId) {
+          if (type === 'connection-answer') {
+            console.log('Received answer from network baby monitor at', device.networkAddress);
+            try {
+              await peerConnection.setRemoteDescription(answer);
+              setConnectedDevice(device);
+              setIsConnecting(false);
+              console.log('Successfully connected to baby monitor!');
+            } catch (error) {
+              console.error('Error setting remote description:', error);
+              setIsConnecting(false);
+            }
+          } else if (type === 'ice-candidate-response' && candidate) {
+            console.log('Received ICE candidate from baby monitor');
+            try {
+              await peerConnection.addIceCandidate(candidate);
+            } catch (error) {
+              console.error('Error adding ICE candidate:', error);
+            }
           }
         }
       };
@@ -294,7 +284,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       // Connection timeout
       setTimeout(() => {
         if (!connectedDevice) {
-          console.log('Network connection timeout');
+          console.log('Connection timeout - failed to connect to baby monitor at', device.networkAddress);
           setIsConnecting(false);
           peerConnection.close();
           networkChannel.close();
@@ -312,7 +302,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       };
 
     } catch (error) {
-      console.error('Error connecting to network device:', error);
+      console.error('Error connecting to baby monitor at', device.networkAddress + ':' + device.port, error);
       setIsConnecting(false);
     }
   };

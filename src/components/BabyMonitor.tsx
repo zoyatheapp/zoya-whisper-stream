@@ -361,6 +361,9 @@ setConnectionStatus('connected');
         } else if (type === 'network-connection-request' && event.data.deviceId === deviceData.id) {
           console.log('Connection request received from parent:', parentId);
           await handleParentConnection(parentId, event.data.offer);
+        } else if (type === 'ice-candidate' && event.data.deviceId === deviceData.id) {
+          console.log('ICE candidate received from parent:', parentId);
+          await handleICECandidate(parentId, event.data.candidate);
         }
       };
 
@@ -413,6 +416,18 @@ setConnectionStatus('connected');
   };
 
   // Handle parent monitor connections via WebRTC
+  const handleICECandidate = async (parentId: string, candidate: RTCIceCandidate) => {
+    try {
+      const peerConnection = peerConnectionsRef.current.get(parentId);
+      if (peerConnection && candidate) {
+        console.log('Adding ICE candidate from parent:', parentId);
+        await peerConnection.addIceCandidate(candidate);
+      }
+    } catch (error) {
+      console.error('Error handling ICE candidate:', error);
+    }
+  };
+
   const handleParentConnection = async (parentId: string, offer: RTCSessionDescriptionInit) => {
     try {
       console.log('Setting up WebRTC connection with parent:', parentId);
@@ -432,6 +447,19 @@ setConnectionStatus('connected');
         });
       }
 
+      // Send ICE candidates to parent
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log('Sending ICE candidate to parent:', parentId);
+          const networkChannel = new BroadcastChannel('zoya-network-discovery');
+          networkChannel.postMessage({
+            type: 'ice-candidate-response',
+            parentId,
+            candidate: event.candidate
+          });
+        }
+      };
+
       // Set remote description (offer from parent)
       await peerConnection.setRemoteDescription(offer);
 
@@ -441,13 +469,15 @@ setConnectionStatus('connected');
 
       console.log('Created answer, sending back to parent...');
 
-      // Send answer back via multiple channels for reliability
-      const channel = new BroadcastChannel('zoya-baby-monitor');
-      channel.postMessage({
+      // Send answer back via network discovery channel for consistency
+      const networkChannel = new BroadcastChannel('zoya-network-discovery');
+      networkChannel.postMessage({
         type: 'connection-answer',
         parentId,
         answer
       });
+
+      console.log('Answer sent via network discovery channel');
 
       // Also store in localStorage for parent to pick up
       const answerKey = `baby-answer-${parentId}`;
