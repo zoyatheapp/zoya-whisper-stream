@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core';
 
 interface IOSRTCPlugin {
   registerGlobals: () => void;
+  observeVideo?: (element: HTMLVideoElement) => void;
   debug?: { enable?: (namespace: string) => void };
 }
 
@@ -36,10 +37,19 @@ export function ensureWebRTCGlobals() {
       }
     };
 
-    if (window.cordova) {
-      document.addEventListener('deviceready', register, { once: true });
-    } else {
-      register();
+    // Register immediately in case the plugin is already loaded and
+    // again on deviceready so native globals are available once Cordova
+    // finishes bootstrapping.
+    document.addEventListener('deviceready', register, { once: true });
+    register();
+  }
+}
+
+export function observeVideo(element: HTMLVideoElement) {
+  if (Capacitor.getPlatform() === 'ios') {
+    const iosrtc = window.cordova?.plugins?.iosrtc;
+    if (iosrtc && typeof iosrtc.observeVideo === 'function') {
+      iosrtc.observeVideo(element);
     }
   }
 }

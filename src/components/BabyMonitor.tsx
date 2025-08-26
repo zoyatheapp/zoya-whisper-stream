@@ -58,15 +58,16 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
         }
       }
 
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: 'user',
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 480, max: 720 },
-        }
-        audio: true,
 
-      };
+const constraints: MediaStreamConstraints = {
+  audio: true,
+  video: {
+    facingMode: 'user',
+    width: { ideal: 640, max: 1280 },
+    height: { ideal: 480, max: 720 }
+  }
+};
+
 
       console.log('Requesting camera and microphone access...');
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -574,7 +575,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover"
             />
             {!isCameraEnabled && (
               <div className="absolute inset-0 bg-muted flex items-center justify-center">
