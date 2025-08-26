@@ -7,11 +7,8 @@ import { Camera, ArrowLeft, Wifi, WifiOff, Loader2, Volume2, VolumeX } from 'luc
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Network } from '@capacitor/network';
-<<<<<<< ours
-import { ensureWebRTCGlobals } from '@/lib/webrtc';
-=======
 import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
->>>>>>> theirs
+
 
 interface BabyMonitorDevice {
   id: string;
@@ -46,6 +43,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
   useEffect(() => {
     ensureWebRTCGlobals();
   }, []);
+
 
   const connectManual = () => {
     if (!manualIp || !manualPort) return;
@@ -220,9 +218,16 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       peerConnection.ontrack = (event) => {
         console.log('Received remote stream:', event.streams[0]);
         if (remoteVideoRef.current && event.streams[0]) {
+          // Prepare element for iOSRTC before attaching stream
+          remoteVideoRef.current.setAttribute('playsinline', 'true');
+          observeVideo(remoteVideoRef.current);
           remoteVideoRef.current.srcObject = event.streams[0];
           remoteStreamRef.current = event.streams[0];
-          observeVideo(remoteVideoRef.current);
+          try {
+            remoteVideoRef.current.play();
+          } catch (err) {
+            console.log('Remote video playback error:', err);
+          }
         }
       };
 
