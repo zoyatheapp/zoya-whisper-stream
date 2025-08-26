@@ -41,6 +41,39 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
   const [manualIp, setManualIp] = useState('');
   const [manualPort, setManualPort] = useState('');
 
+ // Access the Capacitor HTTP plugin if available
+  interface HttpLike {
+    post: (options: { url: string; data?: unknown; headers?: Record<string, string> }) => Promise<{ data: unknown; status: number }>;
+    get: (options: { url: string }) => Promise<{ data: unknown; status: number }>;
+  }
+
+  const getHttp = (): HttpLike | null => {
+    const cap = Capacitor as unknown as { Plugins?: { Http?: HttpLike } };
+    return cap.Plugins?.Http ?? null;
+  };
+
+  const httpPost = async (url: string, data: unknown) => {
+    const plugin = getHttp();
+    if (plugin) {
+      return plugin.post({ url, data });
+    }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return { data: await res.json(), status: res.status };
+  };
+
+  const httpGet = async (url: string) => {
+    const plugin = getHttp();
+    if (plugin) {
+      return plugin.get({ url });
+    }
+    const res = await fetch(url);
+    return { data: await res.json(), status: res.status };
+  };
+
   useEffect(() => {
     ensureWebRTCGlobals();
   }, []);
@@ -202,6 +235,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
     }
 
     setIsConnecting(true);
+    ensureWebRTCGlobals();
     console.log('Connecting to network baby monitor:', device);
 
     try {
@@ -219,7 +253,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       peerConnection.ontrack = (event) => {
         console.log('Received remote stream:', event.streams[0]);
         if (remoteVideoRef.current && event.streams[0]) {
-          // Prepare element for iOSRTC before attaching stream
+         // Prepare element for iOSRTC before attaching stream
           remoteVideoRef.current.setAttribute('playsinline', 'true');
           observeVideo(remoteVideoRef.current);
           remoteVideoRef.current.srcObject = event.streams[0];
@@ -251,26 +285,18 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
         const url = `${baseUrl}/webrtc/offer`;
         const payload = { parentId, offer };
         if (Capacitor.isNativePlatform()) {
-          const response = await Http.post({
-            url,
-            headers: { 'Content-Type': 'application/json' },
-            data: payload
-          });
-          if (response.status < 200 || response.status >= 300) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
-        } else {
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-          }
-          return res.json();
+          const response = await httpPost(url, payload);
+          return response.data;
         }
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+        return res.json();
       };
 
       const { answer } = await sendOffer();
@@ -286,11 +312,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
           const data = { parentId, candidate: event.candidate };
           try {
             if (Capacitor.isNativePlatform()) {
-              await Http.post({
-                url,
-                headers: { 'Content-Type': 'application/json' },
-                data
-              });
+              await httpPost(url, data);
             } else {
               await fetch(url, {
                 method: 'POST',
@@ -307,14 +329,13 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       // Poll for ICE candidates from baby monitor
       const pollForCandidates = async () => {
         try {
-          const url = `${baseUrl}/webrtc/get-candidates/${parentId}`;
+const url = `${baseUrl}/webrtc/get-candidates/${parentId}`;
           let candidates: RTCIceCandidateInit[] = [];
           if (Capacitor.isNativePlatform()) {
-            const res = await Http.get({ url });
+            const res = await httpGet(url);
             if (res.status === 200) {
               const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
               candidates = (data.candidates || []) as RTCIceCandidateInit[];
-
             }
           } else {
             const response = await fetch(url);
@@ -322,7 +343,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
               const data = await response.json();
               candidates = (data.candidates || []) as RTCIceCandidateInit[];
             }
-          } 
+          }
           for (const candidate of candidates) {
             console.log('Received ICE candidate from baby monitor');
             await peerConnection.addIceCandidate(candidate);
@@ -455,13 +476,13 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
         </div>
 
         {/* Video Stream */}
-        <div className="relative h-[calc(100vh-140px)] bg-muted flex items and justify-center">
+        <div className="relative h-[calc(100vh-140px)] bg-muted flex items-center justify-center">
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
             muted={isMuted}
-            className="w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover"
           />
 
           {/* Loading overlay when no stream */}
