@@ -7,7 +7,11 @@ import { Camera, ArrowLeft, Wifi, WifiOff, Loader2, Volume2, VolumeX } from 'luc
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Network } from '@capacitor/network';
+<<<<<<< ours
 import { ensureWebRTCGlobals } from '@/lib/webrtc';
+=======
+import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
+>>>>>>> theirs
 
 interface BabyMonitorDevice {
   id: string;
@@ -218,6 +222,7 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
         if (remoteVideoRef.current && event.streams[0]) {
           remoteVideoRef.current.srcObject = event.streams[0];
           remoteStreamRef.current = event.streams[0];
+          observeVideo(remoteVideoRef.current);
         }
       };
 

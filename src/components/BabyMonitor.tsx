@@ -6,7 +6,11 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Device } from '@capacitor/device';
 import { Network, type ConnectionStatus } from '@capacitor/network';
+<<<<<<< ours
 import { ensureWebRTCGlobals } from '@/lib/webrtc';
+=======
+import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
+>>>>>>> theirs
 
 interface BabyMonitorProps {
   onBack: () => void;
@@ -79,6 +83,7 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
+        observeVideo(videoRef.current);
 
         // Ensure video plays on mobile - important for iOS
         try {
