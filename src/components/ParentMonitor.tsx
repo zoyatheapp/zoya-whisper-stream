@@ -7,6 +7,7 @@ import { Camera, ArrowLeft, Wifi, WifiOff, Loader2, Volume2, VolumeX } from 'luc
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Network } from '@capacitor/network';
+import { ensureWebRTCGlobals } from '@/lib/webrtc';
 
 interface BabyMonitorDevice {
   id: string;
@@ -37,6 +38,10 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
 
   const [manualIp, setManualIp] = useState('');
   const [manualPort, setManualPort] = useState('');
+
+  useEffect(() => {
+    ensureWebRTCGlobals();
+  }, []);
 
   const connectManual = () => {
     if (!manualIp || !manualPort) return;

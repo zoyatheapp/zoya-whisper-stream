@@ -6,6 +6,7 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Device } from '@capacitor/device';
 import { Network, type ConnectionStatus } from '@capacitor/network';
+import { ensureWebRTCGlobals } from '@/lib/webrtc';
 
 interface BabyMonitorProps {
   onBack: () => void;
@@ -25,6 +26,10 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const discoveryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const webSocketRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    ensureWebRTCGlobals();
+  }, []);
 
   const startMonitoring = async () => {
     try {
@@ -202,7 +207,7 @@ setConnectionStatus('connected');
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
 
-      let candidates: string[] = [];
+      const candidates: string[] = [];
 
       // Create a dummy data channel
       rtc.createDataChannel('');
@@ -324,7 +329,7 @@ setConnectionStatus('connected');
     };
 
     // Store endpoints in window for access by fetch simulation
-    (window as any).babyMonitorSignaling = serverEndpoints;
+    (window as Window & { babyMonitorSignaling?: typeof serverEndpoints }).babyMonitorSignaling = serverEndpoints;
     
     // Intercept fetch requests to baby monitor endpoints
     const originalFetch = window.fetch;
