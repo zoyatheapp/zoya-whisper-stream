@@ -8,6 +8,7 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Network } from '@capacitor/network';
 import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
+import Bonjour from 'bonjour-service';
 
 
 
@@ -19,9 +20,10 @@ interface BabyMonitorDevice {
   status: 'active' | 'inactive';
   timestamp: number;
   lastSeen: number;
-  connectionMethod?: 'websocket' | 'broadcast' | 'manual';
+  connectionMethod?: 'websocket' | 'broadcast' | 'manual' | 'stored' | 'bonjour';
   networkAddress?: string;
   port?: number;
+  txtRecord?: any;
 }
 
 interface ParentMonitorProps {
@@ -37,6 +39,8 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const bonjourBrowserRef = useRef<any>(null);
+  const bonjourInstanceRef = useRef<any>(null);
 
   const [manualIp, setManualIp] = useState('');
   const [manualPort, setManualPort] = useState('');
@@ -101,129 +105,123 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
     setDiscoveredDevices([]);
   };
 
-  const scanForDevices = async () => {
-    setIsScanning(true);
-    console.log('Scanning for baby monitors on local network...');
-
+  const startBonjourDiscovery = async () => {
     try {
-      const networkStatus = await Network.getStatus();
-      console.log('Network status:', networkStatus);
-
-      if (!networkStatus.connected) {
-        console.log('Device not connected to network');
-        setIsScanning(false);
-        return;
-      }
-
-      // Clear previous devices
-      setDiscoveredDevices([]);
-
-      // Method 1: Scan localStorage for network-registered devices
-      const scanStorageDevices = () => {
-        console.log('Scanning localStorage for network devices...');
-        const foundDevices: BabyMonitorDevice[] = [];
-
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith('zoya-baby-monitor-')) {
-            try {
-              const deviceData = JSON.parse(localStorage.getItem(key) || '{}');
-              console.log('Found stored device:', deviceData);
-
-              // Check if device is still active (last seen within 10 seconds)
-              if (deviceData.lastSeen && (Date.now() - deviceData.lastSeen) < 10000) {
-                foundDevices.push({
-                  ...deviceData,
-                  connectionMethod: 'network'
-                });
-              }
-            } catch (error) {
-              console.error('Error parsing stored device:', error);
-            }
+      console.log('Starting Bonjour/mDNS discovery...');
+      
+      const bonjour = new Bonjour();
+      
+      // Browse for baby monitor services
+      const browser = bonjour.find({ type: 'baby-monitor' });
+      
+      browser.on('up', (service: any) => {
+        console.log('Found Bonjour service:', service);
+        
+        const device: BabyMonitorDevice = {
+          id: `bonjour-${service.host}-${service.port}`,
+          name: service.name || `Baby Monitor (${service.host})`,
+          type: 'baby-monitor',
+          status: 'active',
+          timestamp: Date.now(),
+          lastSeen: Date.now(),
+          connectionMethod: 'bonjour',
+          networkAddress: service.host,
+          port: service.port,
+          txtRecord: service.txt
+        };
+        
+        setDiscoveredDevices(prev => {
+          // Avoid duplicates
+          const exists = prev.some(d => d.id === device.id);
+          if (!exists) {
+            console.log('Adding discovered device:', device);
+            return [...prev, device];
           }
-        }
-
-        if (foundDevices.length > 0) {
-          console.log(`Found ${foundDevices.length} devices in network storage`);
-          setDiscoveredDevices(foundDevices);
-        }
-      };
-
-      // Method 2: Network broadcast channel scanning
-      const networkChannel = new BroadcastChannel('zoya-network-discovery');
-
-      const handleNetworkAnnouncement = (event: MessageEvent) => {
-        const { type, device } = event.data;
-        console.log('Received network discovery message:', event.data);
-
-        if (type === 'baby-monitor-network-announcement' && device) {
-          console.log('Found baby monitor via network broadcast:', device);
-
-          setDiscoveredDevices(prevDevices => {
-            const existingIndex = prevDevices.findIndex(d => d.id === device.id);
-            const updatedDevice = {
-              ...device,
-              lastSeen: Date.now(),
-              connectionMethod: 'broadcast'
-            };
-
-            if (existingIndex >= 0) {
-              const newDevices = [...prevDevices];
-              newDevices[existingIndex] = updatedDevice;
-              return newDevices;
-            } else {
-              return [...prevDevices, updatedDevice];
-            }
-          });
-        }
-      };
-
-      networkChannel.onmessage = handleNetworkAnnouncement;
-
-      // Send discovery request immediately
-      console.log('Sending parent discovery request...');
-      networkChannel.postMessage({
-        type: 'parent-discovery-request',
-        parentId: `parent-${Date.now()}`,
-        timestamp: Date.now()
+          return prev;
+        });
       });
 
-      // Scan storage immediately
-      scanStorageDevices();
-
-      // Repeat discovery request every 2 seconds while scanning
-      const discoveryInterval = setInterval(() => {
-        console.log('Sending periodic discovery request...');
-        networkChannel.postMessage({
-          type: 'parent-discovery-request',
-          parentId: `parent-${Date.now()}`,
-          timestamp: Date.now()
-        });
-
-        // Also rescan storage
-        scanStorageDevices();
-      }, 2000);
-
-      // Set up periodic cleanup of old devices
-      const cleanupInterval = setInterval(() => {
-        setDiscoveredDevices(prevDevices =>
-          prevDevices.filter(device =>
-            device.lastSeen && (Date.now() - device.lastSeen) < 15000 // Remove devices not seen in 15 seconds
-          )
+      browser.on('down', (service: any) => {
+        console.log('Service went down:', service);
+        const deviceId = `bonjour-${service.host}-${service.port}`;
+        setDiscoveredDevices(prev => 
+          prev.filter(device => device.id !== deviceId)
         );
-      }, 5000);
+      });
 
-      // Stop scanning after 10 seconds
+      // Store reference for cleanup
+      bonjourBrowserRef.current = browser;
+      bonjourInstanceRef.current = bonjour;
+      
+    } catch (error) {
+      console.error('Error starting Bonjour discovery:', error);
+    }
+  };
+
+  const stopBonjourDiscovery = () => {
+    try {
+      const browser = bonjourBrowserRef.current;
+      const bonjourInstance = bonjourInstanceRef.current;
+      
+      if (browser) {
+        browser.stop();
+        bonjourBrowserRef.current = null;
+      }
+      
+      if (bonjourInstance) {
+        bonjourInstance.destroy();
+        bonjourInstanceRef.current = null;
+      }
+      
+      console.log('Bonjour discovery stopped');
+    } catch (error) {
+      console.error('Error stopping Bonjour discovery:', error);
+    }
+  };
+
+  const scanForDevices = async () => {
+    console.log('Starting device scan...');
+    setIsScanning(true);
+    setDiscoveredDevices([]);
+
+    try {
+      // Start Bonjour/mDNS discovery
+      await startBonjourDiscovery();
+
+      // Check localStorage for active baby monitors (fallback)
+      const storedDevices = localStorage.getItem('babyMonitorActive');
+      if (storedDevices) {
+        try {
+          const deviceInfo = JSON.parse(storedDevices);
+          console.log('Found stored device info:', deviceInfo);
+          
+          const device: BabyMonitorDevice = {
+            id: `stored-${deviceInfo.address}-${deviceInfo.port}`,
+            name: `Stored Baby Monitor (${deviceInfo.address})`,
+            type: 'baby-monitor',
+            status: 'active',
+            timestamp: Date.now(),
+            lastSeen: Date.now(),
+            connectionMethod: 'stored',
+            networkAddress: deviceInfo.address,
+            port: deviceInfo.port
+          };
+          
+          setDiscoveredDevices(prev => [...prev, device]);
+        } catch (parseError) {
+          console.error('Error parsing stored device info:', parseError);
+        }
+      }
+
+      // Stop scanning after timeout
       setTimeout(() => {
+        console.log('Network scan completed');
         setIsScanning(false);
-        clearInterval(discoveryInterval);
-        clearInterval(cleanupInterval);
-        networkChannel.close();
-        console.log('Network device scanning completed');
+        stopBonjourDiscovery();
       }, 10000);
 
     } catch (error) {
-      console.error('Error scanning for network devices:', error);
+      console.error('Error during device scan:', error);
       setIsScanning(false);
     }
   };
@@ -465,6 +463,7 @@ const url = `${baseUrl}/webrtc/get-candidates/${parentId}`;
     scanForDevices();
 
     return () => {
+      stopBonjourDiscovery();
       handleDisconnect();
     };
   }, []);

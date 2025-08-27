@@ -7,6 +7,7 @@ import { Capacitor } from '@capacitor/core';
 import { Device } from '@capacitor/device';
 import { Network, type ConnectionStatus } from '@capacitor/network';
 import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
+import Bonjour from 'bonjour-service';
 
 interface BabyMonitorProps {
   onBack: () => void;
@@ -25,6 +26,8 @@ const BabyMonitor = ({ onBack }: BabyMonitorProps) => {
   const discoveryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const webSocketRef = useRef<WebSocket | null>(null);
+  const bonjourServiceRef = useRef<any>(null);
+  const bonjourInstanceRef = useRef<any>(null);
   
   useEffect(() => {
     ensureWebRTCGlobals();
@@ -523,10 +526,54 @@ const constraints: MediaStreamConstraints = {
       // Setup HTTP signaling server
       await setupHTTPSignalingServer();
 
+      // Advertise the service using Bonjour/mDNS
+      await setupBonjourAdvertising(localIP, port, deviceInfo, deviceIdentifier);
+
       console.log('Baby monitor network setup completed');
 
     } catch (error) {
       console.error('Error setting up network broadcasting:', error);
+    }
+  };
+
+  // Setup Bonjour/mDNS advertising
+  const setupBonjourAdvertising = async (networkAddress: string, port: number, deviceInfo: any, deviceId: string) => {
+    try {
+      console.log('Setting up Bonjour/mDNS advertising...');
+      
+      // Create Bonjour instance
+      const bonjour = new Bonjour();
+      
+      // Advertise the baby monitor service
+      const service = bonjour.publish({
+        name: `Baby Monitor (${deviceInfo.model || 'Unknown Device'})`,
+        type: 'baby-monitor',
+        port: port,
+        host: networkAddress,
+        txt: {
+          deviceId: deviceId,
+          model: deviceInfo.model || 'Unknown',
+          platform: deviceInfo.platform || 'Unknown',
+          version: '1.0.0',
+          timestamp: Date.now().toString()
+        }
+      });
+
+      service.on('up', () => {
+        console.log('Bonjour service is up and running');
+      });
+
+      service.on('error', (err: any) => {
+        console.error('Bonjour service error:', err);
+      });
+
+      // Store reference for cleanup
+      bonjourServiceRef.current = service;
+      bonjourInstanceRef.current = bonjour;
+      
+      console.log('Bonjour/mDNS service published successfully');
+    } catch (error) {
+      console.error('Error setting up Bonjour advertising:', error);
     }
   };
 
@@ -606,6 +653,23 @@ const constraints: MediaStreamConstraints = {
     if (discoveryIntervalRef.current) {
       clearInterval(discoveryIntervalRef.current);
       discoveryIntervalRef.current = null;
+    }
+
+    // Cleanup Bonjour service
+    try {
+      if (bonjourServiceRef.current) {
+        bonjourServiceRef.current.stop();
+        bonjourServiceRef.current = null;
+      }
+      
+      if (bonjourInstanceRef.current) {
+        bonjourInstanceRef.current.destroy();
+        bonjourInstanceRef.current = null;
+      }
+      
+      console.log('Bonjour service cleaned up');
+    } catch (error) {
+      console.error('Error cleaning up Bonjour service:', error);
     }
 
     // Close WebSocket connection
