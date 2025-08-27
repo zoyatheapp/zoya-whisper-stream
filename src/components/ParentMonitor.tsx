@@ -284,19 +284,42 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       const sendOffer = async () => {
         const url = `${baseUrl}/webrtc/offer`;
         const payload = { parentId, offer };
-        if (Capacitor.isNativePlatform()) {
-          const response = await httpPost(url, payload);
-          return response.data;
+        
+        console.log('Sending offer to:', url, payload);
+        
+        try {
+          let response;
+          if (Capacitor.isNativePlatform()) {
+            response = await httpPost(url, payload);
+            console.log('Native HTTP response:', response);
+            return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+          } else {
+            const res = await fetch(url, {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify(payload),
+              mode: 'cors'
+            });
+            
+            console.log('Fetch response status:', res.status, res.statusText);
+            
+            if (!res.ok) {
+              const errorText = await res.text();
+              console.error('HTTP error response:', errorText);
+              throw new Error(`HTTP ${res.status}: ${res.statusText} - ${errorText}`);
+            }
+            
+            const responseData = await res.json();
+            console.log('Fetch response data:', responseData);
+            return responseData;
+          }
+        } catch (error) {
+          console.error('Error in sendOffer:', error);
+          throw error;
         }
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        }
-        return res.json();
       };
 
       const { answer } = await sendOffer();
