@@ -7,7 +7,6 @@ import { Capacitor } from '@capacitor/core';
 import { Device } from '@capacitor/device';
 import { Network, type ConnectionStatus } from '@capacitor/network';
 import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
-import Bonjour from 'bonjour-service';
 
 interface BabyMonitorProps {
   onBack: () => void;
@@ -526,8 +525,8 @@ const constraints: MediaStreamConstraints = {
       // Setup HTTP signaling server
       await setupHTTPSignalingServer();
 
-      // Advertise the service using Bonjour/mDNS
-      await setupBonjourAdvertising(localIP, port, deviceInfo, deviceIdentifier);
+      // Advertise the device for discovery
+      await setupDeviceAdvertising(localIP, port, deviceInfo, deviceIdentifier);
 
       console.log('Baby monitor network setup completed');
 
@@ -536,44 +535,60 @@ const constraints: MediaStreamConstraints = {
     }
   };
 
-  // Setup Bonjour/mDNS advertising
-  const setupBonjourAdvertising = async (networkAddress: string, port: number, deviceInfo: any, deviceId: string) => {
+  // Setup device advertising using localStorage and BroadcastChannel
+  const setupDeviceAdvertising = async (networkAddress: string, port: number, deviceInfo: any, deviceId: string) => {
     try {
-      console.log('Setting up Bonjour/mDNS advertising...');
+      console.log('Setting up device advertising...');
       
-      // Create Bonjour instance
-      const bonjour = new Bonjour();
-      
-      // Advertise the baby monitor service
-      const service = bonjour.publish({
+      const deviceData = {
+        id: deviceId,
         name: `Baby Monitor (${deviceInfo.model || 'Unknown Device'})`,
         type: 'baby-monitor',
-        port: port,
         host: networkAddress,
-        txt: {
-          deviceId: deviceId,
-          model: deviceInfo.model || 'Unknown',
-          platform: deviceInfo.platform || 'Unknown',
-          version: '1.0.0',
-          timestamp: Date.now().toString()
+        port: port,
+        platform: deviceInfo.platform || 'Unknown',
+        model: deviceInfo.model || 'Unknown',
+        version: '1.0.0',
+        timestamp: Date.now(),
+        lastSeen: Date.now(),
+        status: 'active'
+      };
+
+      // Store in localStorage for discovery
+      localStorage.setItem('babyMonitorActive', JSON.stringify({
+        address: networkAddress,
+        port: port,
+        device: deviceData
+      }));
+
+      // Broadcast device availability
+      const networkChannel = new BroadcastChannel('zoya-network-discovery');
+      networkChannel.postMessage({
+        type: 'baby-monitor-active',
+        device: deviceData
+      });
+
+      // Start periodic broadcasting for discovery
+      discoveryIntervalRef.current = setInterval(() => {
+        try {
+          const channel = new BroadcastChannel('zoya-network-discovery');
+          channel.postMessage({
+            type: 'baby-monitor-heartbeat',
+            device: {
+              ...deviceData,
+              timestamp: Date.now(),
+              lastSeen: Date.now()
+            }
+          });
+          channel.close();
+        } catch (error) {
+          console.error('Error broadcasting heartbeat:', error);
         }
-      });
+      }, 5000); // Broadcast every 5 seconds
 
-      service.on('up', () => {
-        console.log('Bonjour service is up and running');
-      });
-
-      service.on('error', (err: any) => {
-        console.error('Bonjour service error:', err);
-      });
-
-      // Store reference for cleanup
-      bonjourServiceRef.current = service;
-      bonjourInstanceRef.current = bonjour;
-      
-      console.log('Bonjour/mDNS service published successfully');
+      console.log('Device advertising setup completed:', deviceData);
     } catch (error) {
-      console.error('Error setting up Bonjour advertising:', error);
+      console.error('Error setting up device advertising:', error);
     }
   };
 
@@ -655,21 +670,14 @@ const constraints: MediaStreamConstraints = {
       discoveryIntervalRef.current = null;
     }
 
-    // Cleanup Bonjour service
+    // Cleanup device advertising
     try {
-      if (bonjourServiceRef.current) {
-        bonjourServiceRef.current.stop();
-        bonjourServiceRef.current = null;
-      }
+      // Remove from localStorage
+      localStorage.removeItem('babyMonitorActive');
       
-      if (bonjourInstanceRef.current) {
-        bonjourInstanceRef.current.destroy();
-        bonjourInstanceRef.current = null;
-      }
-      
-      console.log('Bonjour service cleaned up');
+      console.log('Device advertising cleaned up');
     } catch (error) {
-      console.error('Error cleaning up Bonjour service:', error);
+      console.error('Error cleaning up device advertising:', error);
     }
 
     // Close WebSocket connection

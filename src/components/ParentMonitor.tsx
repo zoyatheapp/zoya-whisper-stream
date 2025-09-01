@@ -8,7 +8,7 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { Network } from '@capacitor/network';
 import { ensureWebRTCGlobals, observeVideo } from '@/lib/webrtc';
-import Bonjour from 'bonjour-service';
+
 
 
 
@@ -105,77 +105,86 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
     setDiscoveredDevices([]);
   };
 
-  const startBonjourDiscovery = async () => {
+  const startNetworkDiscovery = async () => {
     try {
-      console.log('Starting Bonjour/mDNS discovery...');
+      console.log('Starting network device discovery...');
       
-      const bonjour = new Bonjour();
+      // Listen for baby monitor broadcasts
+      const networkChannel = new BroadcastChannel('zoya-network-discovery');
       
-      // Browse for baby monitor services
-      const browser = bonjour.find({ type: 'baby-monitor' });
-      
-      browser.on('up', (service: any) => {
-        console.log('Found Bonjour service:', service);
+      const handleNetworkMessage = (event: MessageEvent) => {
+        console.log('Received network message:', event.data);
         
-        const device: BabyMonitorDevice = {
-          id: `bonjour-${service.host}-${service.port}`,
-          name: service.name || `Baby Monitor (${service.host})`,
-          type: 'baby-monitor',
-          status: 'active',
-          timestamp: Date.now(),
-          lastSeen: Date.now(),
-          connectionMethod: 'bonjour',
-          networkAddress: service.host,
-          port: service.port,
-          txtRecord: service.txt
-        };
-        
-        setDiscoveredDevices(prev => {
-          // Avoid duplicates
-          const exists = prev.some(d => d.id === device.id);
-          if (!exists) {
-            console.log('Adding discovered device:', device);
-            return [...prev, device];
-          }
-          return prev;
-        });
+        if (event.data.type === 'baby-monitor-active' || event.data.type === 'baby-monitor-heartbeat') {
+          const deviceData = event.data.device;
+          
+          const device: BabyMonitorDevice = {
+            id: `network-${deviceData.id}`,
+            name: deviceData.name || `Baby Monitor (${deviceData.host})`,
+            type: 'baby-monitor',
+            status: 'active',
+            timestamp: deviceData.timestamp || Date.now(),
+            lastSeen: Date.now(),
+            connectionMethod: 'broadcast',
+            networkAddress: deviceData.host,
+            port: deviceData.port,
+            platform: deviceData.platform
+          };
+          
+          setDiscoveredDevices(prev => {
+            // Update existing or add new
+            const existingIndex = prev.findIndex(d => d.id === device.id);
+            if (existingIndex >= 0) {
+              const updated = [...prev];
+              updated[existingIndex] = { ...updated[existingIndex], ...device, lastSeen: Date.now() };
+              return updated;
+            } else {
+              console.log('Adding discovered device:', device);
+              return [...prev, device];
+            }
+          });
+        } else if (event.data.type === 'baby-monitor-network-disconnected') {
+          // Remove disconnected devices
+          setDiscoveredDevices(prev => 
+            prev.filter(device => device.connectionMethod !== 'broadcast')
+          );
+        }
+      };
+      
+      networkChannel.addEventListener('message', handleNetworkMessage);
+      
+      // Request active devices to announce themselves
+      networkChannel.postMessage({
+        type: 'parent-requesting-devices'
       });
-
-      browser.on('down', (service: any) => {
-        console.log('Service went down:', service);
-        const deviceId = `bonjour-${service.host}-${service.port}`;
-        setDiscoveredDevices(prev => 
-          prev.filter(device => device.id !== deviceId)
-        );
-      });
-
-      // Store reference for cleanup
-      bonjourBrowserRef.current = browser;
-      bonjourInstanceRef.current = bonjour;
+      
+      // Store reference for cleanup  
+      bonjourBrowserRef.current = { 
+        stop: () => {
+          networkChannel.removeEventListener('message', handleNetworkMessage);
+          networkChannel.close();
+        }
+      };
+      
+      console.log('Network discovery started');
       
     } catch (error) {
-      console.error('Error starting Bonjour discovery:', error);
+      console.error('Error starting network discovery:', error);
     }
   };
 
-  const stopBonjourDiscovery = () => {
+  const stopNetworkDiscovery = () => {
     try {
       const browser = bonjourBrowserRef.current;
-      const bonjourInstance = bonjourInstanceRef.current;
       
-      if (browser) {
+      if (browser && browser.stop) {
         browser.stop();
         bonjourBrowserRef.current = null;
       }
       
-      if (bonjourInstance) {
-        bonjourInstance.destroy();
-        bonjourInstanceRef.current = null;
-      }
-      
-      console.log('Bonjour discovery stopped');
+      console.log('Network discovery stopped');
     } catch (error) {
-      console.error('Error stopping Bonjour discovery:', error);
+      console.error('Error stopping network discovery:', error);
     }
   };
 
@@ -185,8 +194,8 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
     setDiscoveredDevices([]);
 
     try {
-      // Start Bonjour/mDNS discovery
-      await startBonjourDiscovery();
+      // Start network discovery
+      await startNetworkDiscovery();
 
       // Check localStorage for active baby monitors (fallback)
       const storedDevices = localStorage.getItem('babyMonitorActive');
@@ -214,11 +223,12 @@ const ParentMonitor = ({ onBack }: ParentMonitorProps) => {
       }
 
       // Stop scanning after timeout
+      // Scan for a longer duration to find devices
       setTimeout(() => {
         console.log('Network scan completed');
         setIsScanning(false);
-        stopBonjourDiscovery();
-      }, 10000);
+        stopNetworkDiscovery();
+      }, 15000);
 
     } catch (error) {
       console.error('Error during device scan:', error);
@@ -463,7 +473,7 @@ const url = `${baseUrl}/webrtc/get-candidates/${parentId}`;
     scanForDevices();
 
     return () => {
-      stopBonjourDiscovery();
+      stopNetworkDiscovery();
       handleDisconnect();
     };
   }, []);
